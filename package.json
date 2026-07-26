@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "bash scripts/deploy.sh"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
