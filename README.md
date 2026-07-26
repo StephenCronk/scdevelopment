@@ -103,25 +103,40 @@ dashboard — that is independent of `site.email`, which is only what the page d
 
 ## Deploying
 
-> **Not wired up yet.** `.github/workflows/deploy.yml` exists locally but is
-> **untracked and not on the remote** — the push was rejected because the stored
-> Personal Access Token lacks the `workflow` scope. Rather than reissuing the
-> token, add the workflow through the web UI, which is not subject to that scope:
->
-> 1. Repo → **Actions** tab → **set up a workflow yourself**.
-> 2. Name the file `deploy.yml`, paste the contents of the local
->    `.github/workflows/deploy.yml`, and commit to `main`.
-> 3. Repo → **Settings → Pages → Source: GitHub Actions**.
-> 4. Locally: `rm -rf .github && git pull` — the pull restores the file as a
->    tracked one. (Git refuses to overwrite an untracked file of the same name,
->    hence removing the local copy first.)
->
-> The alternative is adding the `workflow` scope at
-> [github.com/settings/tokens](https://github.com/settings/tokens) — note that is
-> under *account* settings → **Developer settings**, not repository settings — and
-> updating the cached credential in the macOS login keychain.
+**Pages cannot build this repo for itself.** Pointed at the repo root it serves the
+source tree, where `index.html` references `/src/main.ts` — which Pages returns as
+`content-type: video/mp2t`, so the browser refuses to execute it as a module. The
+symptom is an unstyled page with no canvas, plus a 404 on `poster.jpg` (it lives under
+`public/` in source). A build has to be published.
 
-Once it is in place, pushing to `main` builds and publishes automatically.
+### Current setup: `gh-pages` branch
 
-`base` is `'./'`, so the same build works on a project page, a user page or a custom
-domain with no reconfiguration.
+```bash
+npm run deploy
+```
+
+Builds and publishes `dist/` to the `gh-pages` branch. One-time setting:
+**Settings → Pages → Source → Deploy from a branch → `gh-pages` / `(root)`**.
+
+Re-run `npm run deploy` after any change. The script appends to the branch, so the
+push stays a fast-forward and never needs `--force`.
+
+### Optional: automate it with Actions
+
+`.github/workflows/deploy.yml` does the same thing on every push to `main`, but it is
+**untracked and not on the remote** — pushing it is rejected because the stored token
+lacks the `workflow` scope. Two ways to add it:
+
+- Repo → **Actions** tab → *set up a workflow yourself* → name it `deploy.yml`, paste
+  the local file's contents, commit. Then locally: `rm -rf .github && git pull` (git
+  won't overwrite an untracked file of the same name, hence removing it first).
+- Or add the `workflow` scope at
+  [github.com/settings/tokens](https://github.com/settings/tokens) — that lives under
+  *account* settings → **Developer settings**, not repository settings — update the
+  cached credential in the macOS login keychain, then `git add .github && git push`.
+
+Afterwards switch **Settings → Pages → Source** to **GitHub Actions**, and
+`npm run deploy` becomes unnecessary.
+
+`base` is `'./'`, so the same build works from a branch, from Actions, on a user page
+or on a custom domain with no reconfiguration.
