@@ -54,12 +54,30 @@ uniform vec4  uBalls[BALLS];
 // trick — a low-contrast environment reflects as matte plastic.
 // The ceiling is deliberately mid-grey, not white: it's the body tone of the
 // metal, and the strips and key light have to be able to read as brighter.
-const vec3 TOP_C    = vec3(0.60, 0.61, 0.64);
-const vec3 GROUND_C = vec3(0.045, 0.045, 0.052);
+const vec3 TOP_C    = vec3(0.62, 0.61, 0.59);   // faintly warm ceiling
+const vec3 GROUND_C = vec3(0.040, 0.046, 0.064); // faintly cool floor
 
+// Gelled studio lights. Chrome has no colour of its own — everything you see in
+// it is the room, so tinting the sources is what actually puts colour in the
+// reflections. Kept to a warm/cool/rose triad plus a teal accent so it reads as
+// a lit set rather than a disco ball.
 const vec3 KEY_DIR  = vec3( 0.35,  0.86,  0.37);
 const vec3 FILL_DIR = vec3(-0.72,  0.30,  0.62);
 const vec3 RIM_DIR  = vec3( 0.15, -0.25, -0.96);
+const vec3 ACC_DIR  = vec3(-0.55, -0.42,  0.72);
+
+const vec3 KEY_COL  = vec3(1.00, 0.95, 0.86); // warm gold
+const vec3 FILL_COL = vec3(0.55, 0.76, 1.00); // cool blue
+const vec3 RIM_COL  = vec3(1.00, 0.70, 0.76); // rose
+const vec3 ACC_COL  = vec3(0.55, 1.00, 0.88); // teal
+
+// Thin-film interference. IRID_TINT multiplies the reflection, so it colours
+// the lit metal while leaving the dark floor reflection black — adding the
+// colour instead would lift those darks and turn the whole thing pastel.
+// IRID_BLOOM is a smaller additive term that flares at the silhouette.
+#define IRID_TINT  0.34
+#define IRID_BLOOM 0.15
+#define IRID_BANDS 2.7   // spectral cycles across the viewing angle
 
 vec3 gCursor; // cursor ball position in world space, set once in main()
 
@@ -148,6 +166,11 @@ vec3 env(vec3 r) {
   // underside rather than swallowing half the object.
   vec3 c = mix(GROUND_C, TOP_C, smoothstep(-0.17, -0.10, y));
 
+  // Lateral colour-temperature shift across the room: warm one side, cool the
+  // other. Tinting a large area like this is what spreads colour across the
+  // whole surface — point lights alone just leave isolated coloured smears.
+  c *= mix(vec3(1.05, 0.99, 0.92), vec3(0.92, 0.98, 1.06), smoothstep(-0.75, 0.75, q.x));
+
   // The studio sweep catches light just below the horizon line, which keeps the
   // dark underside from reading as a hole punched in the page.
   c += vec3(0.30, 0.305, 0.33)
@@ -158,22 +181,29 @@ vec3 env(vec3 r) {
   c += vec3(1.00, 0.99, 0.97) * 1.70 * strip1;
 
   float strip2 = smoothstep(0.02, 0.07, y) * (1.0 - smoothstep(0.16, 0.23, y));
-  c += vec3(0.93, 0.96, 1.00) * 0.45 * strip2;
+  c += vec3(0.72, 0.86, 1.00) * 0.55 * strip2;
 
   // Vertical window panels. Crossed structure — horizontal strips plus vertical
   // panels — is what makes a reflection read as a room instead of a gradient.
   // Faded out toward both poles, where the azimuth converges and the panels
   // would otherwise pinwheel into a visible fan.
   float az = atan(q.z, q.x);
-  c += vec3(0.90, 0.94, 1.00) * 0.45
+  c += vec3(0.78, 0.90, 1.00) * 0.50
      * smoothstep(0.55, 0.88, sin(az * 3.0))
      * smoothstep(-0.10, 0.34, y)
      * (1.0 - smoothstep(0.45, 0.80, abs(y)));
 
-  // Directional sources on top of the room.
-  c += vec3(1.00, 0.99, 0.97) * 1.90 * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
-  c += vec3(0.70, 0.81, 1.00) * 0.60 * smoothstep(0.80, 0.990, dot(q, FILL_DIR));
-  c += vec3(1.00, 0.88, 0.74) * 0.70 * smoothstep(0.88, 1.000, dot(q, RIM_DIR));
+  // Directional sources on top of the room. The key stays near-white and very
+  // bright so the primary highlight still reads as polished metal; the colour
+  // lives in the weaker fill, rim and accent.
+  // Broad-ish falloffs so colour is distributed rather than landing as isolated
+  // blobs of paint — but kept weak. These add light, and pushing them harder
+  // lifts the dark floor reflection, which is the contrast the whole metallic
+  // read depends on.
+  c += mix(vec3(1.0), KEY_COL, 0.55) * 1.90 * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
+  c += FILL_COL * 0.38 * smoothstep(0.45, 0.97, dot(q, FILL_DIR));
+  c += RIM_COL  * 0.34 * smoothstep(0.66, 1.00, dot(q, RIM_DIR));
+  c += ACC_COL  * 0.22 * smoothstep(0.55, 0.98, dot(q, ACC_DIR));
 
   return c;
 }
@@ -327,7 +357,7 @@ void main() {
 
       // Chromatic dispersion: split the reflection vector per channel. Cheap,
       // and disproportionately expensive-looking at grazing angles.
-      float disp = 0.022 + 0.060 * fres;
+      float disp = 0.030 + 0.085 * fres;
       vec3 refl = vec3(
         env(normalize(r - n * disp)).r,
         env(r).g,
@@ -336,6 +366,16 @@ void main() {
 
       vec3 F0 = vec3(0.96, 0.95, 0.93);
       vec3 metal = refl * mix(F0, vec3(1.0), fres) * ao(p, n);
+
+      // Thin-film interference. A cosine palette offset per channel approximates
+      // the spectral banding of anodised or oil-filmed metal. Driven by view
+      // angle plus surface orientation, so the bands travel across the mass as
+      // it turns rather than sitting on it like a sticker.
+      float film = fres * IRID_BANDS + dot(n, vec3(0.30, 0.82, 0.48)) * 0.85;
+      vec3 sheen = 0.5 + 0.5 * cos(6.28318 * (film + vec3(0.0, 0.33, 0.67)));
+
+      metal *= mix(vec3(1.0), sheen * 1.7, IRID_TINT);
+      metal += sheen * fres * IRID_BLOOM;
 
       // Shoulder so the blown light strips roll off instead of clipping to a
       // flat white blob. Applied to the metal only — the paper has to come out
