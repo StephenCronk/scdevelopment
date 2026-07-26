@@ -33,9 +33,13 @@ uniform vec4  uBalls[BALLS];
 // parameters, so morphing is a plain lerp with no types to switch between.
 uniform vec4  uPartA[PARTS];
 uniform vec4  uPartB[PARTS];
-// 0 = round cross-section, 1 = square. Lets one primitive cover both the
-// rocket's bullet body and the cross's flat bars.
-uniform float uPartSq[PARTS];
+// xyz = per-axis stretch (smallest component is always 1), w = squareness of
+// the ground-plane section.
+uniform vec4 uPartC[PARTS];
+// Squareness along the vertical. Separate from the ground-plane one because a
+// cylinder is round in plan but flat on top — a single squareness applied to
+// all three axes cannot express that, and gives domed studs instead.
+uniform float uPartSqY[PARTS];
 uniform float uShapeMix;   // 0 = organic blob, 1 = the assembled shape
 uniform float uShapeK;     // smin blend between parts
 uniform float uShapeSpin;  // slow turn, so the silhouette reads in 3D
@@ -122,16 +126,25 @@ float submitPulse() {
 // already bisects overshoot (the field is non-Lipschitz regardless), and this
 // costs about a quarter as much — which matters when map() runs 100+ times per
 // pixel against six of them.
-float sdPart(vec3 p, vec3 a, vec3 b, float r1, float r2, float sq) {
+float sdPart(vec3 p, vec3 a, vec3 b, float r1, float r2, vec3 an, float sqXZ, float sqY) {
   vec3 pa = p - a;
   vec3 ba = b - a;
+  // Degenerate segments (a == b) are intentional — that is how boxes and
+  // ellipsoids are expressed, with all the extent carried by `an`.
   float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
-  vec3 v = pa - ba * h;
+  vec3 v = (pa - ba * h) / an;
 
-  // Blend the cross-section between a circle (L2) and a square (Chebyshev).
-  // Chebyshev is always <= length, so the blend under-estimates distance —
-  // conservative for sphere tracing, and the march bisects overshoot anyway.
-  float section = mix(length(v), max(max(abs(v.x), abs(v.y)), abs(v.z)), sq);
+  // Two-stage norm: the ground-plane pair gets its own squareness, and the
+  // result is combined with the vertical using a second one. sqXZ 0 with sqY 1
+  // is a hard cylinder — round in plan, flat on top with a sharp rim — which a
+  // single squareness across all three axes cannot express.
+  //
+  // Both blends move toward Chebyshev, which is always <= length, and every
+  // component of `an` is >= 1, so this under-estimates distance. Conservative
+  // for sphere tracing, and the march bisects overshoot anyway.
+  float radial = mix(length(v.xz), max(abs(v.x), abs(v.z)), sqXZ);
+  float axial = abs(v.y);
+  float section = mix(length(vec2(radial, axial)), max(radial, axial), sqY);
   return section - mix(r1, r2, h);
 }
 
@@ -148,9 +161,11 @@ float shapeField(vec3 p) {
   float c = cos(uShapeSpin);
   vec3 q = vec3(p.x * c - p.z * s, p.y, p.x * s + p.z * c);
 
-  float d = sdPart(q, uPartA[0].xyz, uPartB[0].xyz, uPartA[0].w, uPartB[0].w, uPartSq[0]);
+  float d = sdPart(q, uPartA[0].xyz, uPartB[0].xyz, uPartA[0].w, uPartB[0].w,
+                   uPartC[0].xyz, uPartC[0].w, uPartSqY[0]);
   for (int i = 1; i < PARTS; i++) {
-    d = smin(d, sdPart(q, uPartA[i].xyz, uPartB[i].xyz, uPartA[i].w, uPartB[i].w, uPartSq[i]), uShapeK);
+    d = smin(d, sdPart(q, uPartA[i].xyz, uPartB[i].xyz, uPartA[i].w, uPartB[i].w,
+                       uPartC[i].xyz, uPartC[i].w, uPartSqY[i]), uShapeK);
   }
   return d;
 }
@@ -312,7 +327,9 @@ float groundShadow(vec2 p) {
     for (int i = 0; i < PARTS; i++) {
       vec3 m = 0.5 * (uPartA[i].xyz + uPartB[i].xyz);
       m = vec3(m.x * cp - m.z * sp, m.y, m.x * sp + m.z * cp);
-      b += shadowBlot(p, m, 0.5 * (uPartA[i].w + uPartB[i].w));
+      // Horizontal footprint, so the stretch on the ground-plane axes counts.
+      float rad = 0.5 * (uPartA[i].w + uPartB[i].w) * max(uPartC[i].x, uPartC[i].z);
+      b += shadowBlot(p, m, rad);
     }
     s += b * uShapeMix;
   }

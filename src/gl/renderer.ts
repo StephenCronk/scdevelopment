@@ -179,7 +179,8 @@ export function createRenderer(
     balls: gl.getUniformLocation(program, 'uBalls'),
     partA: gl.getUniformLocation(program, 'uPartA'),
     partB: gl.getUniformLocation(program, 'uPartB'),
-    partSq: gl.getUniformLocation(program, 'uPartSq'),
+    partC: gl.getUniformLocation(program, 'uPartC'),
+    partSqY: gl.getUniformLocation(program, 'uPartSqY'),
     shapeMix: gl.getUniformLocation(program, 'uShapeMix'),
     shapeK: gl.getUniformLocation(program, 'uShapeK'),
     shapeSpin: gl.getUniformLocation(program, 'uShapeSpin'),
@@ -278,7 +279,8 @@ export function createRenderer(
     const shape = sampleShape(time)
     gl!.uniform4fv(u.partA, shape.partA)
     gl!.uniform4fv(u.partB, shape.partB)
-    gl!.uniform1fv(u.partSq, shape.partSq)
+    gl!.uniform4fv(u.partC, shape.partC)
+    gl!.uniform1fv(u.partSqY, shape.partSqY)
     gl!.uniform1f(u.shapeMix, shape.mix)
     gl!.uniform1f(u.shapeK, shape.k)
     gl!.uniform1f(u.shapeSpin, shape.spin)
