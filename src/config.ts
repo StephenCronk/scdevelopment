@@ -8,7 +8,7 @@ export const site = {
   role: 'Web developer',
   email: 'stephenc.dev@gmail.com',
   /** Shown in the footer. Set to null to hide the link entirely. */
-  github: 'https://github.com/stephencronk', // TODO: confirm your GitHub URL
+  github: 'https://github.com/StephenCronk',
   /** Footer availability line. Set to null to hide. */
   availability: 'Available for new work',
 } as const
