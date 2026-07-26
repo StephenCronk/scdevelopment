@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Stephen Cronk — Web Developer</title>
+  <meta name="description" content="Web developer. No portfolio grid, no case studies — just an address and a form.">
+  <meta name="theme-color" content="#f4f3ef">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='%23111'/></svg>">
+  <script type="module" crossorigin src="./assets/index-Z5pHrYbs.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-LO6ztBwm.css">
+</head>
+<body>
+  <!-- Purely decorative: the page reads identically with it removed. -->
+  <canvas id="stage" aria-hidden="true"></canvas>
+  <!-- src is assigned by main.ts only if WebGL is actually unavailable, so the
+       overwhelming majority of visitors never download these bytes. -->
+  <img id="poster" data-src="./poster.jpg" alt="" aria-hidden="true" decoding="async" hidden>
+
+  <main class="page">
+    <header class="masthead">
+      <h1 class="name" id="js-name">Stephen Cronk</h1>
+      <p class="role" id="js-role">Web developer</p>
+    </header>
+
+    <section class="contact" aria-labelledby="contact-heading">
+      <h2 class="sr-only" id="contact-heading">Contact</h2>
+
+      <p class="reach">
+        <a class="email" id="js-email" href="mailto:">loading…</a>
+        <button type="button" class="copy" id="js-copy">
+          <span id="js-copy-label">Copy</span>
+        </button>
+      </p>
+
+      <button type="button" class="disclose" id="js-disclose" aria-expanded="false" aria-controls="js-panel">
+        <span class="disclose-mark" aria-hidden="true"></span>
+        <span class="disclose-text">or send a message</span>
+      </button>
+
+      <div class="panel" id="js-panel">
+        <div class="panel-inner">
+          <form class="form" id="js-form" novalidate>
+            <div class="field">
+              <label for="f-name">Name</label>
+              <input id="f-name" name="name" type="text" autocomplete="name" required>
+              <p class="err" id="f-name-err" hidden></p>
+            </div>
+
+            <div class="field">
+              <label for="f-email">Email</label>
+              <input id="f-email" name="email" type="email" autocomplete="email" inputmode="email" required>
+              <p class="err" id="f-email-err" hidden></p>
+            </div>
+
+            <div class="field">
+              <label for="f-message">Message</label>
+              <textarea id="f-message" name="message" rows="3" required></textarea>
+              <p class="err" id="f-message-err" hidden></p>
+            </div>
+
+            <!-- Formspree's honeypot convention. Hidden from sight and from tab order. -->
+            <div class="gotcha" aria-hidden="true">
+              <label for="f-gotcha">Leave this empty</label>
+              <input id="f-gotcha" name="_gotcha" type="text" tabindex="-1" autocomplete="off">
+            </div>
+
+            <div class="actions">
+              <button type="submit" class="submit" id="js-submit">Send</button>
+              <p class="form-note" id="js-note"></p>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span id="js-availability"></span>
+      <a id="js-github" href="#" rel="me noopener">GitHub</a>
+    </footer>
+  </main>
+
+  <!-- Announcements for screen readers; visually hidden. -->
+  <div id="js-status" role="status" aria-live="polite" class="sr-only"></div>
+
+</body>
+</html>
