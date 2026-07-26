@@ -2,55 +2,73 @@
  * Shape morphing.
  *
  * Every shape is built from the same fixed budget of PARTS tapered capsules —
- * a segment from `a` to `b` with a radius at each end. That one primitive
- * covers spheres (a == b), capsules (r1 == r2), cones (r2 -> 0) and tapered
- * bodies, which means morphing is a straight lerp of the parameters with no
- * primitive types to switch between. The parts physically fly into their new
- * positions and re-merge, rather than one distance field dissolving into
- * another — the difference between mercury reorganising itself and a crossfade.
+ * a segment from `a` to `b`, a radius at each end, and a squareness that blends
+ * the cross-section from round to square. That one primitive covers spheres,
+ * capsules, cones, tapered bodies and flat bars, which means morphing is a
+ * straight lerp of the parameters with no primitive types to switch between.
+ * The parts physically fly into their new positions and re-merge, rather than
+ * one distance field dissolving into another.
  *
- * Part indices are the correspondence map, so their ordering is meaningful:
- * the apple's stem becomes the rocket's nose cone, its lobes become the fins.
+ * Part indices are the correspondence map, so their ordering is meaningful.
+ *
+ * Proportions are measured from the reference FBX meshes on the desktop
+ * (rocket.fbx, medicalcross.fbx) — see the numbers in the comments below.
  */
 
-export const PARTS = 6
+export const PARTS = 7
 
-/** [ax, ay, az, r1, bx, by, bz, r2] per part. */
+/** [ax, ay, az, r1, bx, by, bz, r2, squareness] per part. */
 type Preset = readonly number[]
 
+/**
+ * Medical cross. Measured: extents ±0.775 on both axes, bar half-width ~0.29,
+ * half-thickness 0.294 — so the bars are very nearly square in section, which
+ * is what the squareness parameter is for.
+ *
+ * Only two parts are visible. The other five are parked inside the bars with
+ * radii small enough to be swallowed entirely, so they contribute nothing here
+ * but are in position to sprout into the rocket's nose, fins and nozzle.
+ */
 // prettier-ignore
-const APPLE: Preset = [
-  // body — a WIDE horizontal capsule. Built vertically it reads as a pear or a
-  // paper bag; an apple is wider than it is tall.
-  -0.14, -0.02,  0.00, 0.52,    0.14, -0.02,  0.00, 0.52,
-  // left shoulder        -> rocket's left fin
-  -0.26,  0.10,  0.00, 0.38,   -0.23,  0.18,  0.00, 0.35,
-  // right shoulder       -> rocket's right fin
-   0.26,  0.10,  0.00, 0.38,    0.23,  0.18,  0.00, 0.35,
-  // The two shoulders rise just above the body, and the valley the smin leaves
-  // between them is the dimple the stem sits in — no subtraction needed.
-  // depth lobe, rounds it out in z  -> rocket's back fin
-   0.00, -0.02, -0.20, 0.42,    0.00, -0.02,  0.20, 0.42,
-  // stem                 -> rocket's nose cone
-   0.00,  0.24,  0.00, 0.05,    0.03,  0.72,  0.00, 0.04,
-  // leaf                 -> rocket's tail nozzle
-   0.06,  0.56,  0.00, 0.13,    0.36,  0.68,  0.05, 0.03,
+const CROSS: Preset = [
+  // vertical bar                    -> rocket lower body
+   0.00, -0.49,  0.00, 0.29,    0.00,  0.49,  0.00, 0.29,   0.85,
+  // horizontal bar                  -> rocket mid body
+  -0.49,  0.00,  0.00, 0.29,    0.49,  0.00,  0.00, 0.29,   0.85,
+  // parked, becomes the nose cone
+   0.00,  0.10,  0.00, 0.16,    0.00,  0.35,  0.00, 0.10,   0.50,
+  // parked, becomes fin A
+  -0.15, -0.30,  0.00, 0.09,   -0.05, -0.10,  0.00, 0.09,   0.30,
+  // parked, becomes fin B
+   0.15, -0.30,  0.00, 0.09,    0.05, -0.10,  0.00, 0.09,   0.30,
+  // parked, becomes fin C
+   0.00, -0.30, -0.15, 0.09,    0.00, -0.10, -0.05, 0.09,   0.30,
+  // parked, becomes the tail nozzle
+   0.00, -0.35,  0.00, 0.14,    0.00, -0.50,  0.00, 0.10,   0.40,
 ]
 
+/**
+ * Rocket. Measured radius profile along the body: 0.214 at y -0.613, 0.365 at
+ * -0.254, widening to 0.404 at 0.087, then 0.305 at 0.386 and a 0.038 point at
+ * 0.775. So it is a bullet, not a cylinder with a cone stuck on — three tapered
+ * segments track that curve. Fins span y -0.775 to -0.380 and reach r 0.53.
+ */
 // prettier-ignore
 const ROCKET: Preset = [
-  // fuselage
-   0.00, -0.50,  0.00, 0.30,    0.00,  0.26,  0.00, 0.27,
-  // left fin
-  -0.44, -0.64,  0.00, 0.05,   -0.06, -0.12,  0.00, 0.12,
-  // right fin
-   0.44, -0.64,  0.00, 0.05,    0.06, -0.12,  0.00, 0.12,
-  // back fin
-   0.00, -0.64, -0.44, 0.05,    0.00, -0.12, -0.06, 0.12,
+  // lower body
+   0.00, -0.62,  0.00, 0.215,   0.00, -0.25,  0.00, 0.365,  0.00,
+  // mid body, widest point
+   0.00, -0.25,  0.00, 0.365,   0.00,  0.10,  0.00, 0.404,  0.00,
   // nose cone
-   0.00,  0.26,  0.00, 0.27,    0.00,  0.86,  0.00, 0.02,
+   0.00,  0.10,  0.00, 0.404,   0.00,  0.78,  0.00, 0.025,  0.00,
+  // fin A
+  -0.50, -0.78,  0.00, 0.05,   -0.10, -0.36,  0.00, 0.13,   0.80,
+  // fin B
+   0.50, -0.78,  0.00, 0.05,    0.10, -0.36,  0.00, 0.13,   0.80,
+  // fin C
+   0.00, -0.78, -0.50, 0.05,    0.00, -0.36, -0.10, 0.13,   0.80,
   // tail nozzle
-   0.00, -0.50,  0.00, 0.23,    0.00, -0.70,  0.00, 0.13,
+   0.00, -0.62,  0.00, 0.20,    0.00, -0.80,  0.00, 0.11,   0.00,
 ]
 
 /**
@@ -66,7 +84,7 @@ interface Stage {
 
 const TIMELINE: readonly Stage[] = [
   { shape: null, hold: 4.5, morph: 1.5 },
-  { shape: APPLE, hold: 3.0, morph: 1.4 },
+  { shape: CROSS, hold: 3.0, morph: 1.4 },
   { shape: ROCKET, hold: 3.0, morph: 1.5 },
 ]
 
@@ -81,11 +99,14 @@ const WOBBLE_BLOB = 0.012
 // smin blend between parts: tight when a shape is held so it stays legible,
 // loose mid-morph so the parts melt together on the way.
 const K_HELD = 0.05
-const K_MORPH = 0.17
+const K_MORPH = 0.20
+
+const STRIDE = 9
 
 export interface ShapeSample {
   partA: Float32Array
   partB: Float32Array
+  partSq: Float32Array
   /** 0 = pure blob, 1 = pure shape. */
   mix: number
   k: number
@@ -99,15 +120,20 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 export function createShapeSampler() {
   const partA = new Float32Array(PARTS * 4)
   const partB = new Float32Array(PARTS * 4)
-  const out: ShapeSample = { partA, partB, mix: 0, k: K_HELD, wobble: WOBBLE_BLOB, spin: 0 }
+  const partSq = new Float32Array(PARTS)
+  const out: ShapeSample = {
+    partA, partB, partSq,
+    mix: 0, k: K_HELD, wobble: WOBBLE_BLOB, spin: 0,
+  }
 
   function write(from: Preset, to: Preset, t: number) {
     for (let i = 0; i < PARTS; i++) {
-      const o = i * 8
+      const o = i * STRIDE
       for (let c = 0; c < 4; c++) {
         partA[i * 4 + c] = lerp(from[o + c]!, to[o + c]!, t)
         partB[i * 4 + c] = lerp(from[o + 4 + c]!, to[o + 4 + c]!, t)
       }
+      partSq[i] = lerp(from[o + 8]!, to[o + 8]!, t)
     }
   }
 
@@ -150,9 +176,10 @@ export function createShapeSampler() {
       WOBBLE_MORPH,
       heat,
     )
-    // Slow turn so the silhouette reads in three dimensions; shapes stay
-    // upright rather than tumbling, or they stop being recognisable.
-    out.spin = time * 0.35
+    // A sway rather than a full turn. The cross is flat, so a continuous
+    // rotation would put it edge-on half the time and destroy the read; this
+    // still gives enough parallax to show the shapes are solid.
+    out.spin = Math.sin(time * 0.32) * 0.55
 
     return out
   }

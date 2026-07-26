@@ -33,6 +33,9 @@ uniform vec4  uBalls[BALLS];
 // parameters, so morphing is a plain lerp with no types to switch between.
 uniform vec4  uPartA[PARTS];
 uniform vec4  uPartB[PARTS];
+// 0 = round cross-section, 1 = square. Lets one primitive cover both the
+// rocket's bullet body and the cross's flat bars.
+uniform float uPartSq[PARTS];
 uniform float uShapeMix;   // 0 = organic blob, 1 = the assembled shape
 uniform float uShapeK;     // smin blend between parts
 uniform float uShapeSpin;  // slow turn, so the silhouette reads in 3D
@@ -119,11 +122,17 @@ float submitPulse() {
 // already bisects overshoot (the field is non-Lipschitz regardless), and this
 // costs about a quarter as much — which matters when map() runs 100+ times per
 // pixel against six of them.
-float sdPart(vec3 p, vec3 a, vec3 b, float r1, float r2) {
+float sdPart(vec3 p, vec3 a, vec3 b, float r1, float r2, float sq) {
   vec3 pa = p - a;
   vec3 ba = b - a;
   float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
-  return length(pa - ba * h) - mix(r1, r2, h);
+  vec3 v = pa - ba * h;
+
+  // Blend the cross-section between a circle (L2) and a square (Chebyshev).
+  // Chebyshev is always <= length, so the blend under-estimates distance —
+  // conservative for sphere tracing, and the march bisects overshoot anyway.
+  float section = mix(length(v), max(max(abs(v.x), abs(v.y)), abs(v.z)), sq);
+  return section - mix(r1, r2, h);
 }
 
 float blobField(vec3 p, float pulse) {
@@ -139,9 +148,9 @@ float shapeField(vec3 p) {
   float c = cos(uShapeSpin);
   vec3 q = vec3(p.x * c - p.z * s, p.y, p.x * s + p.z * c);
 
-  float d = sdPart(q, uPartA[0].xyz, uPartB[0].xyz, uPartA[0].w, uPartB[0].w);
+  float d = sdPart(q, uPartA[0].xyz, uPartB[0].xyz, uPartA[0].w, uPartB[0].w, uPartSq[0]);
   for (int i = 1; i < PARTS; i++) {
-    d = smin(d, sdPart(q, uPartA[i].xyz, uPartB[i].xyz, uPartA[i].w, uPartB[i].w), uShapeK);
+    d = smin(d, sdPart(q, uPartA[i].xyz, uPartB[i].xyz, uPartA[i].w, uPartB[i].w, uPartSq[i]), uShapeK);
   }
   return d;
 }

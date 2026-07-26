@@ -43,8 +43,9 @@ const MOBILE: Quality = { maxSteps: 72, balls: 5, aoTaps: 3, maxDpr: 1.5 }
 const MIN_SCALE = 0.55
 const MAX_SCALE = 1.0
 
-/** A frame of the animation that happens to be nicely composed, for still renders. */
-export const POSTER_TIME = 12.4
+/** A nicely composed frame for still renders. Sits in the blob phase of the
+ *  morph cycle — the abstract form is the better single image for a fallback. */
+export const POSTER_TIME = 2.4
 
 function srgbToLinear(hex: string): [number, number, number] {
   const n = parseInt(hex.replace('#', ''), 16)
@@ -178,6 +179,7 @@ export function createRenderer(
     balls: gl.getUniformLocation(program, 'uBalls'),
     partA: gl.getUniformLocation(program, 'uPartA'),
     partB: gl.getUniformLocation(program, 'uPartB'),
+    partSq: gl.getUniformLocation(program, 'uPartSq'),
     shapeMix: gl.getUniformLocation(program, 'uShapeMix'),
     shapeK: gl.getUniformLocation(program, 'uShapeK'),
     shapeSpin: gl.getUniformLocation(program, 'uShapeSpin'),
@@ -276,6 +278,7 @@ export function createRenderer(
     const shape = sampleShape(time)
     gl!.uniform4fv(u.partA, shape.partA)
     gl!.uniform4fv(u.partB, shape.partB)
+    gl!.uniform1fv(u.partSq, shape.partSq)
     gl!.uniform1f(u.shapeMix, shape.mix)
     gl!.uniform1f(u.shapeK, shape.k)
     gl!.uniform1f(u.shapeSpin, shape.spin)
