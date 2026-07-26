@@ -22,6 +22,11 @@ uniform float uEvent;          // seconds since form submit; large when idle
 uniform float uFocus;          // 0 = hero framing, 1 = contact form open
 uniform vec3  uPaper;          // background colour, LINEAR space
 
+// Satellite metaballs: xyz = centre, w = radius. Computed on the CPU once per
+// frame rather than per pixel — map() runs ~100+ times per pixel, and deriving
+// the orbits in here meant thousands of redundant trig ops per pixel.
+uniform vec4  uBalls[BALLS];
+
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
@@ -36,6 +41,14 @@ uniform vec3  uPaper;          // background colour, LINEAR space
 #define BOUND    1.65   // bounding sphere for the early-out
 #define FOCAL    2.15
 #define FAR      6.0
+
+#define FLOOR_Y        -0.80  // where the shadow lands, in framed screen space.
+                              // Further down and it detaches into a smudge
+                              // rather than reading as the mass's own shadow.
+#define SHADOW_SQUASH   0.24  // vertical foreshortening of the cast shadow
+#define SHADOW_STRENGTH 0.34
+#define VIGNETTE        0.21  // edge falloff — makes the empty page read as
+                              // composed rather than merely blank
 
 // A studio: dark floor, bright ceiling, hard horizon. The contrast is the whole
 // trick — a low-contrast environment reflects as matte plastic.
@@ -59,29 +72,6 @@ float smin(float a, float b, float k) {
   return mix(b, a, h) - k * h * (1.0 - h);
 }
 
-// Satellite orbits. Coprime-ish frequencies plus a golden-angle phase offset so
-// the arrangement never visibly repeats or synchronises.
-vec3 ballPos(float fi, float t) {
-  float a = fi * 2.3999632;
-
-  vec3 dir = vec3(
-    sin(t * (0.53 + 0.11 * fi) + a),
-    cos(t * (0.47 + 0.09 * fi) + a * 1.7),
-    sin(t * (0.41 + 0.13 * fi) + a * 2.3)
-  );
-
-  // Normalising pins each satellite to a known orbit radius. Without it the
-  // raw sin/cos vector varies in length by a factor of ~1.7, and at the top of
-  // that range a satellite drifts far enough to snap off the core.
-  dir = normalize(dir + 1e-4);
-
-  // Orbit radius chosen so the satellites sit proud of the core and form necks
-  // rather than hiding inside it — that's the difference between a metaball
-  // blob and a plain sphere.
-  float s = (0.45 + 0.25 * fract(fi * 0.6180339)) * (0.88 + 0.12 * sin(t * 0.6 + a));
-  return dir * s;
-}
-
 // Collapse-then-burst driven by a successful form submit.
 float submitPulse() {
   if (uEvent > 6.0) return 0.0;
@@ -95,9 +85,7 @@ float map(vec3 p) {
   float d = length(p) - CORE_R * (1.0 - 0.30 * pulse);
 
   for (int i = 0; i < BALLS; i++) {
-    float fi = float(i);
-    float br = 0.26 + 0.12 * fract(fi * 0.3819660);
-    d = smin(d, length(p - ballPos(fi, t)) - br, K);
+    d = smin(d, length(p - uBalls[i].xyz) - uBalls[i].w, K);
   }
 
   // The blob reaches for the cursor. Mixing rather than branching keeps the
@@ -192,6 +180,37 @@ vec3 env(vec3 r) {
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Ground shadow
+// ---------------------------------------------------------------------------
+
+// One soft blot cast by a single ball onto the floor line. Higher balls throw a
+// wider, weaker penumbra, which is what keeps the shadow reading as contact
+// rather than as a decal stuck to the page.
+float shadowBlot(vec2 p, vec3 b, float r) {
+  float k = FOCAL / (3.0 - b.z);        // perspective scale at that depth
+  float h = max(b.y - FLOOR_Y, 0.0);    // height above the floor
+  vec2 c = vec2(b.x * k, FLOOR_Y);
+  float rad = r * k * (1.0 + 0.60 * h);
+  float fade = 0.62 / (1.0 + 1.7 * h);
+  vec2 d = (p - c) / vec2(rad, rad * SHADOW_SQUASH);
+  return fade * exp(-dot(d, d));
+}
+
+// Projected from the live metaball positions, so it stretches and splits as the
+// mass moves and reaches for the cursor instead of sitting there as a fixed
+// ellipse.
+float groundShadow(vec2 p) {
+  float s = shadowBlot(p, vec3(0.0), CORE_R);
+  for (int i = 0; i < BALLS; i++) {
+    s += shadowBlot(p, uBalls[i].xyz, uBalls[i].w);
+  }
+  s += shadowBlot(p, gCursor, 0.17 + 0.10 * uPress) * uPointerActive;
+  return clamp(s, 0.0, 1.0);
+}
+
+// ---------------------------------------------------------------------------
+
 vec3 cursorWorld() {
   // Un-project the pointer onto the z = 0.30 plane, then clamp so the blob
   // stretches toward the cursor rather than chasing it off screen.
@@ -240,10 +259,9 @@ void main() {
 
   vec3 rd = normalize(suv.x * rt + suv.y * up + FOCAL * fw);
 
-  // Background: paper plus a soft contact shadow, so the blob sits in the page
-  // instead of floating on top of it. In the shifted space, so it tracks.
-  vec2 sp = (suv - vec2(0.0, -0.70)) / vec2(0.80, 0.17);
-  vec3 col = uPaper * (1.0 - 0.20 * exp(-dot(sp, sp) * 1.5));
+  // Background: paper plus the cast shadow, so the mass sits in the page
+  // instead of floating on top of it.
+  vec3 col = uPaper * (1.0 - SHADOW_STRENGTH * groundShadow(suv));
 
   // Bounding-sphere test. Background pixels cost one quadratic rather than a
   // full march — by far the biggest win available here, since raymarching is
@@ -327,6 +345,12 @@ void main() {
       col = mix(col, metal, cov);
     }
   }
+
+  // Edge falloff across the whole frame, blob included, so the composition
+  // holds together and the empty margins read as deliberate.
+  vec2 q = frag / uResolution;
+  float edge = pow(clamp(16.0 * q.x * (1.0 - q.x) * q.y * (1.0 - q.y), 0.0, 1.0), 0.30);
+  col *= mix(1.0 - VIGNETTE, 1.0, edge);
 
   col = pow(max(col, 0.0), vec3(1.0 / 2.2));
   col += (ign(frag) - 0.5) / 255.0;

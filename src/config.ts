@@ -7,10 +7,10 @@ export const site = {
   /** One quiet line under the name. Keep it short — the blob is the loud thing. */
   role: 'Web developer',
   email: 'stephenc.dev@gmail.com',
-  /** Shown in the footer. Set to null to hide the link entirely. */
-  github: 'https://github.com/StephenCronk',
+  /** Footer link. Set to a URL to show it again; null removes it entirely. */
+  github: null as string | null,
   /** Footer availability line. Set to null to hide. */
-  availability: 'Available for new work',
+  availability: 'Available for new work' as string | null,
 } as const
 
 /**

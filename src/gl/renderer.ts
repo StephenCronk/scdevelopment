@@ -173,6 +173,7 @@ export function createRenderer(
     event: gl.getUniformLocation(program, 'uEvent'),
     focus: gl.getUniformLocation(program, 'uFocus'),
     paper: gl.getUniformLocation(program, 'uPaper'),
+    balls: gl.getUniformLocation(program, 'uBalls'),
   }
   const paperLinear = srgbToLinear(opts.paper)
   gl.uniform3f(u.paper, paperLinear[0], paperLinear[1], paperLinear[2])
@@ -226,8 +227,41 @@ export function createRenderer(
   let elapsed = 0
   let last = 0
 
+  // Satellite orbits, evaluated once per frame instead of once per map() call.
+  // Coprime-ish frequencies plus a golden-angle phase offset so the arrangement
+  // never visibly repeats or synchronises.
+  const ballData = new Float32Array(quality.balls * 4)
+
+  function updateBalls(t: number) {
+    for (let i = 0; i < quality.balls; i++) {
+      const a = i * 2.3999632
+
+      // The +1e-4 before normalising guards the degenerate case where all three
+      // components land on zero at once.
+      let x = Math.sin(t * (0.53 + 0.11 * i) + a) + 1e-4
+      let y = Math.cos(t * (0.47 + 0.09 * i) + a * 1.7) + 1e-4
+      let z = Math.sin(t * (0.41 + 0.13 * i) + a * 2.3) + 1e-4
+      const len = Math.hypot(x, y, z)
+
+      // Pinning each satellite to a known orbit radius matters: the raw sin/cos
+      // vector varies in length by ~1.7x, and at the top of that range a
+      // satellite drifts far enough to snap off the core. The radius keeps them
+      // proud of the core so they form necks rather than hiding inside it.
+      const frac = (i * 0.6180339) % 1
+      const s = (0.45 + 0.25 * frac) * (0.88 + 0.12 * Math.sin(t * 0.6 + a))
+      const k = s / len
+
+      ballData[i * 4] = x * k
+      ballData[i * 4 + 1] = y * k
+      ballData[i * 4 + 2] = z * k
+      ballData[i * 4 + 3] = 0.26 + 0.12 * ((i * 0.381966) % 1)
+    }
+    gl!.uniform4fv(u.balls, ballData)
+  }
+
   function draw(time: number) {
     const s = getState()
+    updateBalls(time)
     gl!.uniform1f(u.time, time)
     gl!.uniform2f(u.pointer, s.pointer[0], s.pointer[1])
     gl!.uniform1f(u.pointerActive, s.pointerActive)
