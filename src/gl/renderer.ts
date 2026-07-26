@@ -1,5 +1,6 @@
 import vertSource from './shaders/quad.vert.glsl?raw'
 import fragSource from './shaders/blob.frag.glsl?raw'
+import { PARTS, createShapeSampler } from './shapes'
 
 export interface SceneState {
   /** Smoothed pointer, y-up, x scaled by aspect. */
@@ -19,7 +20,7 @@ export interface Renderer {
   start(): void
   stop(): void
   /** Renders one frame and returns it as a data URL (used to bake the poster). */
-  capture(opts?: { w?: number; h?: number; type?: string; quality?: number }): string
+  capture(opts?: { w?: number; h?: number; type?: string; quality?: number; t?: number }): string
   /**
    * Milliseconds of GPU time per frame at the current resolution, measured with
    * a blocking finish(). Dev-only diagnostic: unlike a requestAnimationFrame
@@ -120,6 +121,7 @@ export function createRenderer(
   const defines =
     `#define MAX_STEPS ${quality.maxSteps}\n` +
     `#define BALLS ${quality.balls}\n` +
+    `#define PARTS ${PARTS}\n` +
     `#define AO_TAPS ${quality.aoTaps}\n`
 
   // Defines have to land after #version but before the body.
@@ -174,6 +176,12 @@ export function createRenderer(
     focus: gl.getUniformLocation(program, 'uFocus'),
     paper: gl.getUniformLocation(program, 'uPaper'),
     balls: gl.getUniformLocation(program, 'uBalls'),
+    partA: gl.getUniformLocation(program, 'uPartA'),
+    partB: gl.getUniformLocation(program, 'uPartB'),
+    shapeMix: gl.getUniformLocation(program, 'uShapeMix'),
+    shapeK: gl.getUniformLocation(program, 'uShapeK'),
+    shapeSpin: gl.getUniformLocation(program, 'uShapeSpin'),
+    wobble: gl.getUniformLocation(program, 'uWobble'),
   }
   const paperLinear = srgbToLinear(opts.paper)
   gl.uniform3f(u.paper, paperLinear[0], paperLinear[1], paperLinear[2])
@@ -259,9 +267,20 @@ export function createRenderer(
     gl!.uniform4fv(u.balls, ballData)
   }
 
+  const sampleShape = createShapeSampler()
+
   function draw(time: number) {
     const s = getState()
     updateBalls(time)
+
+    const shape = sampleShape(time)
+    gl!.uniform4fv(u.partA, shape.partA)
+    gl!.uniform4fv(u.partB, shape.partB)
+    gl!.uniform1f(u.shapeMix, shape.mix)
+    gl!.uniform1f(u.shapeK, shape.k)
+    gl!.uniform1f(u.shapeSpin, shape.spin)
+    gl!.uniform1f(u.wobble, shape.wobble)
+
     gl!.uniform1f(u.time, time)
     gl!.uniform2f(u.pointer, s.pointer[0], s.pointer[1])
     gl!.uniform1f(u.pointerActive, s.pointerActive)
@@ -349,13 +368,13 @@ export function createRenderer(
     start,
     stop,
     capture(opts = {}) {
-      const { w, h, type = 'image/png', quality } = opts
+      const { w, h, type = 'image/png', quality, t = POSTER_TIME } = opts
       // Draw and read back in the same task — without that, the compositor may
       // have already cleared the buffer (we don't set preserveDrawingBuffer,
       // which would cost us a copy on every single frame).
       if (w && h) forceSize(w, h)
       else resize()
-      draw(POSTER_TIME)
+      draw(t)
       const url = canvas.toDataURL(type, quality)
       if (w && h) bufW = 0 // let the next resize() restore the layout size
       return url

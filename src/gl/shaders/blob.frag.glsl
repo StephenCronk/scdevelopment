@@ -27,6 +27,17 @@ uniform vec3  uPaper;          // background colour, LINEAR space
 // the orbits in here meant thousands of redundant trig ops per pixel.
 uniform vec4  uBalls[BALLS];
 
+// Morph targets: one universal primitive per part — a tapered capsule from
+// A.xyz to B.xyz with radius A.w at one end and B.w at the other. Spheres,
+// capsules, cones and tapered bodies are all the same primitive with different
+// parameters, so morphing is a plain lerp with no types to switch between.
+uniform vec4  uPartA[PARTS];
+uniform vec4  uPartB[PARTS];
+uniform float uShapeMix;   // 0 = organic blob, 1 = the assembled shape
+uniform float uShapeK;     // smin blend between parts
+uniform float uShapeSpin;  // slow turn, so the silhouette reads in 3D
+uniform float uWobble;     // surface noise; ramped up mid-morph
+
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
@@ -35,7 +46,6 @@ uniform vec4  uBalls[BALLS];
 #define K        0.30   // smin blend. The single most important constant here:
                         // too low and it reads as separate balls, too high and
                         // it loses all definition.
-#define WOBBLE   0.012  // surface noise amplitude; see STEP_SCALE
 #define STEP_SCALE 0.80 // the field is non-Lipschitz, but the march bisects any
                         // overshoot rather than creeping to avoid it
 #define BOUND    1.65   // bounding sphere for the early-out
@@ -104,15 +114,48 @@ float submitPulse() {
   return exp(-2.2 * uEvent) * sin(uEvent * 7.0);
 }
 
+// Tapered capsule. Deliberately the cheap approximation rather than the exact
+// round-cone SDF: it under-estimates distance along the taper, but the march
+// already bisects overshoot (the field is non-Lipschitz regardless), and this
+// costs about a quarter as much — which matters when map() runs 100+ times per
+// pixel against six of them.
+float sdPart(vec3 p, vec3 a, vec3 b, float r1, float r2) {
+  vec3 pa = p - a;
+  vec3 ba = b - a;
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+  return length(pa - ba * h) - mix(r1, r2, h);
+}
+
+float blobField(vec3 p, float pulse) {
+  float d = length(p) - CORE_R * (1.0 - 0.30 * pulse);
+  for (int i = 0; i < BALLS; i++) {
+    d = smin(d, length(p - uBalls[i].xyz) - uBalls[i].w, K);
+  }
+  return d;
+}
+
+float shapeField(vec3 p) {
+  float s = sin(uShapeSpin);
+  float c = cos(uShapeSpin);
+  vec3 q = vec3(p.x * c - p.z * s, p.y, p.x * s + p.z * c);
+
+  float d = sdPart(q, uPartA[0].xyz, uPartB[0].xyz, uPartA[0].w, uPartB[0].w);
+  for (int i = 1; i < PARTS; i++) {
+    d = smin(d, sdPart(q, uPartA[i].xyz, uPartB[i].xyz, uPartA[i].w, uPartB[i].w), uShapeK);
+  }
+  return d;
+}
+
 float map(vec3 p) {
   float t = uTime;
   float pulse = submitPulse();
 
-  float d = length(p) - CORE_R * (1.0 - 0.30 * pulse);
-
-  for (int i = 0; i < BALLS; i++) {
-    d = smin(d, length(p - uBalls[i].xyz) - uBalls[i].w, K);
-  }
+  // Branching on a uniform is perfectly coherent — every pixel takes the same
+  // path — so the idle blob never pays for the shape evaluation, and vice versa.
+  float d;
+  if (uShapeMix <= 0.001)      d = blobField(p, pulse);
+  else if (uShapeMix >= 0.999) d = shapeField(p);
+  else                         d = mix(blobField(p, pulse), shapeField(p), uShapeMix);
 
   // The blob reaches for the cursor. Mixing rather than branching keeps the
   // field continuous as the pointer enters and leaves the window.
@@ -120,7 +163,9 @@ float map(vec3 p) {
   d = mix(d, smin(d, dc, K * 1.5), uPointerActive);
 
   // Surface wobble — this is what stops it looking like tidy CAD geometry.
-  d -= WOBBLE * sin(p.x * 5.7 + t * 0.9) * sin(p.y * 6.3 - t * 0.7) * sin(p.z * 5.1 + t * 1.1);
+  // Ramped up mid-morph and near-zero when a shape is held, so it melts while
+  // moving and goes crisp on arrival.
+  d -= uWobble * sin(p.x * 5.7 + t * 0.9) * sin(p.y * 6.3 - t * 0.7) * sin(p.z * 5.1 + t * 1.1);
 
   // Ripple travelling outward after a submit.
   d -= 0.05 * pulse * sin(length(p) * 14.0 - uEvent * 9.0);
@@ -239,10 +284,30 @@ float shadowBlot(vec2 p, vec3 b, float r) {
 // mass moves and reaches for the cursor instead of sitting there as a fixed
 // ellipse.
 float groundShadow(vec2 p) {
-  float s = shadowBlot(p, vec3(0.0), CORE_R);
-  for (int i = 0; i < BALLS; i++) {
-    s += shadowBlot(p, uBalls[i].xyz, uBalls[i].w);
+  float s = 0.0;
+
+  if (uShapeMix < 0.999) {
+    float b = shadowBlot(p, vec3(0.0), CORE_R);
+    for (int i = 0; i < BALLS; i++) {
+      b += shadowBlot(p, uBalls[i].xyz, uBalls[i].w);
+    }
+    s += b * (1.0 - uShapeMix);
   }
+
+  if (uShapeMix > 0.001) {
+    // Parts live in the shape's own spun frame, so undo the spin to get where
+    // each one actually sits in the world before projecting it down.
+    float sp = sin(-uShapeSpin);
+    float cp = cos(-uShapeSpin);
+    float b = 0.0;
+    for (int i = 0; i < PARTS; i++) {
+      vec3 m = 0.5 * (uPartA[i].xyz + uPartB[i].xyz);
+      m = vec3(m.x * cp - m.z * sp, m.y, m.x * sp + m.z * cp);
+      b += shadowBlot(p, m, 0.5 * (uPartA[i].w + uPartB[i].w));
+    }
+    s += b * uShapeMix;
+  }
+
   s += shadowBlot(p, gCursor, 0.17 + 0.10 * uPress) * uPointerActive;
   return clamp(s, 0.0, 1.0);
 }
