@@ -54,8 +54,8 @@ uniform vec4  uBalls[BALLS];
 // trick — a low-contrast environment reflects as matte plastic.
 // The ceiling is deliberately mid-grey, not white: it's the body tone of the
 // metal, and the strips and key light have to be able to read as brighter.
-const vec3 TOP_C    = vec3(0.62, 0.61, 0.59);   // faintly warm ceiling
-const vec3 GROUND_C = vec3(0.040, 0.046, 0.064); // faintly cool floor
+const vec3 TOP_C    = vec3(0.58, 0.61, 0.66);   // faintly cool ceiling
+const vec3 GROUND_C = vec3(0.038, 0.044, 0.068); // cool floor
 
 // Gelled studio lights. Chrome has no colour of its own — everything you see in
 // it is the room, so tinting the sources is what actually puts colour in the
@@ -66,18 +66,26 @@ const vec3 FILL_DIR = vec3(-0.72,  0.30,  0.62);
 const vec3 RIM_DIR  = vec3( 0.15, -0.25, -0.96);
 const vec3 ACC_DIR  = vec3(-0.55, -0.42,  0.72);
 
-const vec3 KEY_COL  = vec3(1.00, 0.95, 0.86); // warm gold
-const vec3 FILL_COL = vec3(0.55, 0.76, 1.00); // cool blue
-const vec3 RIM_COL  = vec3(1.00, 0.70, 0.76); // rose
-const vec3 ACC_COL  = vec3(0.55, 1.00, 0.88); // teal
+const vec3 KEY_COL  = vec3(0.92, 0.95, 1.00); // neutral, faintly cool
+const vec3 FILL_COL = vec3(0.48, 0.70, 1.00); // blue
+const vec3 RIM_COL  = vec3(0.78, 0.60, 1.00); // violet
+const vec3 ACC_COL  = vec3(0.45, 0.85, 1.00); // cyan
+
+// Iridescence palette. Rather than cycling the full colour wheel — which
+// unavoidably passes through amber — these oscillate along a single axis from
+// cyan to magenta, through blue and violet. Same phase on every channel is what
+// keeps it a line in colour space instead of a loop.
+const vec3 IRID_A = vec3(0.56,  0.56, 0.92);
+const vec3 IRID_B = vec3(0.26, -0.20, 0.06);
+const vec3 IRID_D = vec3(0.00,  0.05, -0.06);
 
 // Thin-film interference. IRID_TINT multiplies the reflection, so it colours
 // the lit metal while leaving the dark floor reflection black — adding the
 // colour instead would lift those darks and turn the whole thing pastel.
 // IRID_BLOOM is a smaller additive term that flares at the silhouette.
-#define IRID_TINT  0.34
-#define IRID_BLOOM 0.15
-#define IRID_BANDS 2.7   // spectral cycles across the viewing angle
+#define IRID_TINT  0.50
+#define IRID_BLOOM 0.22
+#define IRID_BANDS 3.5   // spectral cycles across the viewing angle
 
 vec3 gCursor; // cursor ball position in world space, set once in main()
 
@@ -166,10 +174,10 @@ vec3 env(vec3 r) {
   // underside rather than swallowing half the object.
   vec3 c = mix(GROUND_C, TOP_C, smoothstep(-0.17, -0.10, y));
 
-  // Lateral colour-temperature shift across the room: warm one side, cool the
+  // Lateral colour shift across the room — violet on one side, cyan on the
   // other. Tinting a large area like this is what spreads colour across the
-  // whole surface — point lights alone just leave isolated coloured smears.
-  c *= mix(vec3(1.05, 0.99, 0.92), vec3(0.92, 0.98, 1.06), smoothstep(-0.75, 0.75, q.x));
+  // whole surface; point lights alone just leave isolated coloured smears.
+  c *= mix(vec3(1.02, 0.94, 1.08), vec3(0.90, 1.00, 1.08), smoothstep(-0.75, 0.75, q.x));
 
   // The studio sweep catches light just below the horizon line, which keeps the
   // dark underside from reading as a hole punched in the page.
@@ -178,7 +186,7 @@ vec3 env(vec3 r) {
 
   // Overhead light strips.
   float strip1 = smoothstep(0.42, 0.50, y) * (1.0 - smoothstep(0.72, 0.82, y));
-  c += vec3(1.00, 0.99, 0.97) * 1.70 * strip1;
+  c += vec3(0.97, 0.99, 1.00) * 1.70 * strip1;
 
   float strip2 = smoothstep(0.02, 0.07, y) * (1.0 - smoothstep(0.16, 0.23, y));
   c += vec3(0.72, 0.86, 1.00) * 0.55 * strip2;
@@ -364,7 +372,7 @@ void main() {
         env(normalize(r + n * disp)).b
       );
 
-      vec3 F0 = vec3(0.96, 0.95, 0.93);
+      vec3 F0 = vec3(0.93, 0.95, 0.99);
       vec3 metal = refl * mix(F0, vec3(1.0), fres) * ao(p, n);
 
       // Thin-film interference. A cosine palette offset per channel approximates
@@ -372,7 +380,7 @@ void main() {
       // angle plus surface orientation, so the bands travel across the mass as
       // it turns rather than sitting on it like a sticker.
       float film = fres * IRID_BANDS + dot(n, vec3(0.30, 0.82, 0.48)) * 0.85;
-      vec3 sheen = 0.5 + 0.5 * cos(6.28318 * (film + vec3(0.0, 0.33, 0.67)));
+      vec3 sheen = IRID_A + IRID_B * cos(6.28318 * (film + IRID_D));
 
       metal *= mix(vec3(1.0), sheen * 1.7, IRID_TINT);
       metal += sheen * fres * IRID_BLOOM;
