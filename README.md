@@ -103,8 +103,19 @@ dashboard — that is independent of `site.email`, which is only what the page d
 
 ## Deploying
 
-Pushing to `main` triggers `.github/workflows/deploy.yml`. One manual step first:
-in the repository settings, set **Pages → Source** to **GitHub Actions**.
+> **Not wired up yet.** `.github/workflows/deploy.yml` exists locally but is
+> **untracked and not on the remote** — the push was rejected because the stored
+> Personal Access Token lacks the `workflow` scope. To finish:
+>
+> 1. Add the scope at [github.com/settings/tokens](https://github.com/settings/tokens)
+>    (classic: tick `workflow`; fine-grained: *Workflows → Read and write*).
+> 2. `git add .github && git commit -m "Add Pages deploy workflow" && git push`
+> 3. In repository settings, set **Pages → Source** to **GitHub Actions**.
+>
+> Alternatively, paste the file's contents into a new workflow via the repo's
+> **Actions** tab in the web UI, which bypasses the token scope entirely.
+
+Once it is in place, pushing to `main` builds and publishes automatically.
 
 `base` is `'./'`, so the same build works on a project page, a user page or a custom
 domain with no reconfiguration.
