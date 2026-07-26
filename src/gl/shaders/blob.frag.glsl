@@ -1,0 +1,334 @@
+#version 300 es
+
+// Liquid chrome — raymarched SDF metaballs with a procedural studio environment.
+//
+// The whole page centrepiece lives in this file. Everything is analytic: no
+// textures, no geometry, no environment map. That keeps the shipped bundle tiny
+// and means the look is tuned by editing constants rather than reauthoring art.
+//
+// QUALITY defines (MAX_STEPS, BALLS, AO_TAPS) are injected by renderer.ts before
+// compilation so the mobile path can march fewer steps against fewer balls.
+
+precision highp float;
+
+out vec4 fragColor;
+
+uniform vec2  uResolution;     // drawing buffer size, px
+uniform float uTime;           // seconds
+uniform vec2  uPointer;        // smoothed pointer, y-up, x scaled by aspect
+uniform float uPointerActive;  // 0..1, fades the cursor ball in and out
+uniform float uPress;          // 0..1, pointer held down
+uniform float uEvent;          // seconds since form submit; large when idle
+uniform float uFocus;          // 0 = hero framing, 1 = contact form open
+uniform vec3  uPaper;          // background colour, LINEAR space
+
+// ---------------------------------------------------------------------------
+// Tunables
+// ---------------------------------------------------------------------------
+
+#define CORE_R   0.36   // central mass — keeps the satellites from ever detaching
+#define K        0.30   // smin blend. The single most important constant here:
+                        // too low and it reads as separate balls, too high and
+                        // it loses all definition.
+#define WOBBLE   0.012  // surface noise amplitude; see STEP_SCALE
+#define STEP_SCALE 0.80 // the field is non-Lipschitz, but the march bisects any
+                        // overshoot rather than creeping to avoid it
+#define BOUND    1.65   // bounding sphere for the early-out
+#define FOCAL    2.15
+#define FAR      6.0
+
+// A studio: dark floor, bright ceiling, hard horizon. The contrast is the whole
+// trick — a low-contrast environment reflects as matte plastic.
+// The ceiling is deliberately mid-grey, not white: it's the body tone of the
+// metal, and the strips and key light have to be able to read as brighter.
+const vec3 TOP_C    = vec3(0.60, 0.61, 0.64);
+const vec3 GROUND_C = vec3(0.045, 0.045, 0.052);
+
+const vec3 KEY_DIR  = vec3( 0.35,  0.86,  0.37);
+const vec3 FILL_DIR = vec3(-0.72,  0.30,  0.62);
+const vec3 RIM_DIR  = vec3( 0.15, -0.25, -0.96);
+
+vec3 gCursor; // cursor ball position in world space, set once in main()
+
+// ---------------------------------------------------------------------------
+// Distance field
+// ---------------------------------------------------------------------------
+
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+// Satellite orbits. Coprime-ish frequencies plus a golden-angle phase offset so
+// the arrangement never visibly repeats or synchronises.
+vec3 ballPos(float fi, float t) {
+  float a = fi * 2.3999632;
+
+  vec3 dir = vec3(
+    sin(t * (0.53 + 0.11 * fi) + a),
+    cos(t * (0.47 + 0.09 * fi) + a * 1.7),
+    sin(t * (0.41 + 0.13 * fi) + a * 2.3)
+  );
+
+  // Normalising pins each satellite to a known orbit radius. Without it the
+  // raw sin/cos vector varies in length by a factor of ~1.7, and at the top of
+  // that range a satellite drifts far enough to snap off the core.
+  dir = normalize(dir + 1e-4);
+
+  // Orbit radius chosen so the satellites sit proud of the core and form necks
+  // rather than hiding inside it — that's the difference between a metaball
+  // blob and a plain sphere.
+  float s = (0.45 + 0.25 * fract(fi * 0.6180339)) * (0.88 + 0.12 * sin(t * 0.6 + a));
+  return dir * s;
+}
+
+// Collapse-then-burst driven by a successful form submit.
+float submitPulse() {
+  if (uEvent > 6.0) return 0.0;
+  return exp(-2.2 * uEvent) * sin(uEvent * 7.0);
+}
+
+float map(vec3 p) {
+  float t = uTime;
+  float pulse = submitPulse();
+
+  float d = length(p) - CORE_R * (1.0 - 0.30 * pulse);
+
+  for (int i = 0; i < BALLS; i++) {
+    float fi = float(i);
+    float br = 0.26 + 0.12 * fract(fi * 0.3819660);
+    d = smin(d, length(p - ballPos(fi, t)) - br, K);
+  }
+
+  // The blob reaches for the cursor. Mixing rather than branching keeps the
+  // field continuous as the pointer enters and leaves the window.
+  float dc = length(p - gCursor) - (0.17 + 0.10 * uPress);
+  d = mix(d, smin(d, dc, K * 1.5), uPointerActive);
+
+  // Surface wobble — this is what stops it looking like tidy CAD geometry.
+  d -= WOBBLE * sin(p.x * 5.7 + t * 0.9) * sin(p.y * 6.3 - t * 0.7) * sin(p.z * 5.1 + t * 1.1);
+
+  // Ripple travelling outward after a submit.
+  d -= 0.05 * pulse * sin(length(p) * 14.0 - uEvent * 9.0);
+
+  return d;
+}
+
+// Tetrahedron normals: 4 taps instead of the 6 a central difference needs.
+vec3 calcNormal(vec3 p) {
+  vec2 e = vec2(0.0016, -0.0016);
+  return normalize(
+    e.xyy * map(p + e.xyy) +
+    e.yyx * map(p + e.yyx) +
+    e.yxy * map(p + e.yxy) +
+    e.xxx * map(p + e.xxx)
+  );
+}
+
+// Cheap SDF occlusion. This darkens the creases where two balls merge, and is
+// what actually sells the union as one liquid body.
+float ao(vec3 p, vec3 n) {
+  float occ = 0.0;
+  float sca = 1.0;
+  for (int i = 0; i < AO_TAPS; i++) {
+    float h = 0.015 + 0.14 * float(i) / float(AO_TAPS);
+    occ += (h - map(p + n * h)) * sca;
+    sca *= 0.82;
+  }
+  return clamp(1.0 - 1.1 * occ, 0.0, 1.0);
+}
+
+// ---------------------------------------------------------------------------
+// Procedural studio environment
+// ---------------------------------------------------------------------------
+
+// A mirror needs something with *structure* to reflect. A smooth gradient makes
+// even a perfect mirror read as matte plastic, so this is a room: hard horizon,
+// dark floor, bright ceiling, and two crisp overhead light strips.
+vec3 env(vec3 r) {
+  // Slowly rotate the room so reflections sweep across the surface. A static
+  // environment on a tumbling object still reads as painted-on shading.
+  float a = uTime * 0.055;
+  float ca = cos(a), sa = sin(a);
+  vec3 q = vec3(r.x * ca - r.z * sa, r.y, r.x * sa + r.z * ca);
+
+  float y = clamp(q.y, -1.0, 1.0);
+
+  // Hard horizon — the crisp light/dark split is the single strongest "this is
+  // a mirror" cue. Softening it turns the whole thing back into matte plastic.
+  // It sits below the equator so the dark floor reads as a crescent along the
+  // underside rather than swallowing half the object.
+  vec3 c = mix(GROUND_C, TOP_C, smoothstep(-0.17, -0.10, y));
+
+  // The studio sweep catches light just below the horizon line, which keeps the
+  // dark underside from reading as a hole punched in the page.
+  c += vec3(0.30, 0.305, 0.33)
+     * smoothstep(-0.52, -0.26, y) * (1.0 - smoothstep(-0.22, -0.13, y));
+
+  // Overhead light strips.
+  float strip1 = smoothstep(0.42, 0.50, y) * (1.0 - smoothstep(0.72, 0.82, y));
+  c += vec3(1.00, 0.99, 0.97) * 1.70 * strip1;
+
+  float strip2 = smoothstep(0.02, 0.07, y) * (1.0 - smoothstep(0.16, 0.23, y));
+  c += vec3(0.93, 0.96, 1.00) * 0.45 * strip2;
+
+  // Vertical window panels. Crossed structure — horizontal strips plus vertical
+  // panels — is what makes a reflection read as a room instead of a gradient.
+  // Faded out toward both poles, where the azimuth converges and the panels
+  // would otherwise pinwheel into a visible fan.
+  float az = atan(q.z, q.x);
+  c += vec3(0.90, 0.94, 1.00) * 0.45
+     * smoothstep(0.55, 0.88, sin(az * 3.0))
+     * smoothstep(-0.10, 0.34, y)
+     * (1.0 - smoothstep(0.45, 0.80, abs(y)));
+
+  // Directional sources on top of the room.
+  c += vec3(1.00, 0.99, 0.97) * 1.90 * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
+  c += vec3(0.70, 0.81, 1.00) * 0.60 * smoothstep(0.80, 0.990, dot(q, FILL_DIR));
+  c += vec3(1.00, 0.88, 0.74) * 0.70 * smoothstep(0.88, 1.000, dot(q, RIM_DIR));
+
+  return c;
+}
+
+// ---------------------------------------------------------------------------
+
+vec3 cursorWorld() {
+  // Un-project the pointer onto the z = 0.30 plane, then clamp so the blob
+  // stretches toward the cursor rather than chasing it off screen.
+  vec3 c = vec3(uPointer * (3.0 / FOCAL), 0.30);
+  float L = length(c);
+  return L > 1.10 ? c * (1.10 / L) : c;
+}
+
+// Interleaved gradient noise, used as a dither. A flat paper background with a
+// soft shadow gradient bands visibly at 8 bit; this costs one line and fixes it.
+float ign(vec2 c) {
+  return fract(52.9829189 * fract(0.06711056 * c.x + 0.00583715 * c.y));
+}
+
+void main() {
+  vec2 frag = gl_FragCoord.xy;
+  vec2 uv = (frag * 2.0 - uResolution) / uResolution.y;
+
+  gCursor = cursorWorld();
+
+  // Camera. Static framing, with a little pointer parallax for depth.
+  vec3 ro = vec3(uPointer * 0.10 * uPointerActive, 3.0);
+  vec3 fw = normalize(-ro);
+  vec3 rt = normalize(cross(vec3(0.0, 1.0, 0.0), fw));
+  vec3 up = cross(fw, rt);
+  // Framing. At rest the mass sits centred and a little high, clearing the
+  // address below it. As the contact form opens it steps aside to the right and
+  // recedes, so the fields never have to be read against chrome.
+  float aspect = uResolution.x / uResolution.y;
+
+  // uv is normalised to height, so on a tall narrow viewport the object would
+  // overflow the width. Zoom out to fit the smaller dimension instead.
+  float fit = max(1.0, 0.80 / aspect);
+
+  // Stepping aside only makes sense when there is an empty column to step into.
+  // On narrow viewports it would just walk off screen, so CSS fades the canvas
+  // back there instead (see the 900px breakpoint in main.css).
+  float room = smoothstep(1.10, 1.50, aspect);
+
+  float zoom = fit * mix(1.0, 1.40, uFocus); // > 1 shrinks the object
+  float shiftX = mix(0.0, 0.95, uFocus) * room; // subtracting moves it right
+  // On a portrait viewport the address block takes the bottom third, so lift the
+  // mass further to balance the column rather than leaving dead space up top.
+  float shiftY = mix(0.07, 0.02, uFocus) + 0.30 * (1.0 - room);
+  vec2 suv = vec2(uv.x * zoom - shiftX, uv.y * zoom - shiftY);
+
+  vec3 rd = normalize(suv.x * rt + suv.y * up + FOCAL * fw);
+
+  // Background: paper plus a soft contact shadow, so the blob sits in the page
+  // instead of floating on top of it. In the shifted space, so it tracks.
+  vec2 sp = (suv - vec2(0.0, -0.70)) / vec2(0.80, 0.17);
+  vec3 col = uPaper * (1.0 - 0.20 * exp(-dot(sp, sp) * 1.5));
+
+  // Bounding-sphere test. Background pixels cost one quadratic rather than a
+  // full march — by far the biggest win available here, since raymarching is
+  // fill-rate bound.
+  float b = dot(ro, rd);
+  float c2 = dot(ro, ro) - BOUND * BOUND;
+  float disc = b * b - c2;
+
+  if (disc > 0.0) {
+    float sq = sqrt(disc);
+    float tEnter = max(-b - sq, 0.0);
+    float tExit  = min(-b + sq, FAR);
+
+    // One pixel's worth of world space at distance t. Used both as the march
+    // epsilon (finer than this is wasted work) and as the antialiasing width.
+    // Scales with zoom, since that widens each pixel's footprint.
+    float pxAt = 2.0 * zoom / (uResolution.y * FOCAL);
+
+    float t = tEnter;
+    float minD = 1e9;   // closest positive approach, for antialiasing misses
+    float tAt = tEnter; // where that happened
+    float tHit = -1.0;
+    float prevT = t;
+
+    for (int i = 0; i < MAX_STEPS; i++) {
+      float d = map(ro + rd * t);
+
+      if (d < 0.0) {
+        // Overshot into the body. smin unions and the sine wobble both inflate
+        // the field's gradient past 1, so this is normal rather than
+        // exceptional — and bisecting the crossing is far cheaper than the tiny
+        // step scale it would otherwise take to avoid it. Shading an interior
+        // point is what produces the concentric shell artefacts.
+        float lo = prevT;
+        float hi = t;
+        for (int j = 0; j < 5; j++) {
+          float mid = 0.5 * (lo + hi);
+          if (map(ro + rd * mid) < 0.0) hi = mid; else lo = mid;
+        }
+        tHit = hi;
+        break;
+      }
+
+      if (d < minD) { minD = d; tAt = t; }
+      if (d < pxAt * t * 0.4) { tHit = t; break; }
+
+      prevT = t;
+      t += d * STEP_SCALE;
+      if (t > tExit) break;
+    }
+
+    // Hits shade fully; misses fade out by closest approach, which is what
+    // antialiases the silhouette (minD approximates screen-space distance
+    // to the surface there).
+    float cov = tHit >= 0.0 ? 1.0 : 1.0 - smoothstep(0.0, pxAt * tAt * 1.5, minD);
+    float tShade = tHit >= 0.0 ? tHit : tAt;
+
+    if (cov > 0.0) {
+      vec3 p = ro + rd * tShade;
+      vec3 n = calcNormal(p);
+      vec3 r = reflect(rd, n);
+      float fres = pow(1.0 - clamp(dot(-rd, n), 0.0, 1.0), 5.0);
+
+      // Chromatic dispersion: split the reflection vector per channel. Cheap,
+      // and disproportionately expensive-looking at grazing angles.
+      float disp = 0.022 + 0.060 * fres;
+      vec3 refl = vec3(
+        env(normalize(r - n * disp)).r,
+        env(r).g,
+        env(normalize(r + n * disp)).b
+      );
+
+      vec3 F0 = vec3(0.96, 0.95, 0.93);
+      vec3 metal = refl * mix(F0, vec3(1.0), fres) * ao(p, n);
+
+      // Shoulder so the blown light strips roll off instead of clipping to a
+      // flat white blob. Applied to the metal only — the paper has to come out
+      // exactly as authored, since the CSS background has to match it.
+      metal = metal / (1.0 + metal * 0.30) * 1.30;
+
+      col = mix(col, metal, cov);
+    }
+  }
+
+  col = pow(max(col, 0.0), vec3(1.0 / 2.2));
+  col += (ign(frag) - 0.5) / 255.0;
+  fragColor = vec4(col, 1.0);
+}
