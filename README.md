@@ -93,8 +93,25 @@ box. `prefers-reduced-motion` renders exactly one composed frame and stops.
 
 ## Contact form
 
+> **reCAPTCHA must be off** on the Formspree form, or every submission fails. With it
+> enabled Formspree rejects AJAX outright:
+>
+> ```
+> 403 In order to submit via AJAX, you need to set a custom key or reCAPTCHA
+>     must be disabled in this form's settings page.
+> ```
+>
+> Turn it off under the form's settings on formspree.io. There is no client-side
+> workaround — the only alternative is a native form POST, which navigates the
+> visitor away to Formspree's own thank-you page.
+
 Posts to Formspree with `Accept: application/json`, so success and error states render in
-place instead of redirecting. Includes a `_gotcha` honeypot that short-circuits before
+place instead of redirecting.
+
+Failures are split deliberately: per-field validation (`errors[]`, HTTP 422) is shown to
+the visitor verbatim because they can act on it, while form-level problems (`error`,
+e.g. reCAPTCHA, a disabled form, quota exhausted) are addressed to the form's owner, so
+those go to the console and the visitor just gets the email address instead. Includes a `_gotcha` honeypot that short-circuits before
 the network call, so bot submissions cost nothing from the quota. **The free tier is 50
 submissions/month.**
 

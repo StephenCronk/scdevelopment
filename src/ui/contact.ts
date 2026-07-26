@@ -1,4 +1,4 @@
-import { FORMSPREE_ENDPOINT } from '../config'
+import { FORMSPREE_ENDPOINT, site } from '../config'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
@@ -162,11 +162,26 @@ export function initContact({ onSuccess, onToggle, announce }: Deps): void {
         onSuccess()
       } else {
         const data = await res.json().catch(() => null)
-        const detail: string | undefined = data?.errors?.[0]?.message
-        setNote(detail ?? 'Something went wrong sending that. Email me directly instead?', true)
+
+        // Formspree reports two different kinds of failure and they need
+        // different treatment. Per-field validation arrives as `errors[]` with a
+        // 422 and is worth showing verbatim — the visitor can act on it.
+        // Form-level problems (reCAPTCHA blocking AJAX, a disabled form, quota
+        // exhausted) arrive as a bare `error` string that is addressed to the
+        // form's owner, not its visitor, so that goes to the console and the
+        // visitor gets a plain apology and the address instead.
+        const fieldError: string | undefined = data?.errors?.[0]?.message
+        const formError: string | undefined = data?.error
+
+        if (fieldError) {
+          setNote(fieldError, true)
+        } else {
+          console.error(`[contact] Formspree ${res.status}: ${formError ?? '(no detail)'}`)
+          setNote(`Couldn’t send that — please email me at ${site.email} instead.`, true)
+        }
       }
     } catch {
-      setNote('Couldn’t reach the server. Email me directly instead?', true)
+      setNote(`Couldn’t reach the server — please email me at ${site.email} instead.`, true)
     } finally {
       sending = false
       submit.disabled = false

@@ -183,8 +183,12 @@ float map(vec3 p) {
 
   // The blob reaches for the cursor. Mixing rather than branching keeps the
   // field continuous as the pointer enters and leaves the window.
+  //
+  // Faded out by uShapeMix so whatever the pointer has drawn out retracts into
+  // the mass as a shape forms, and a held cross or brick is never deformed by
+  // where the cursor happens to be.
   float dc = length(p - gCursor) - (0.17 + 0.10 * uPress);
-  d = mix(d, smin(d, dc, K * 1.5), uPointerActive);
+  d = mix(d, smin(d, dc, K * 1.5), uPointerActive * (1.0 - uShapeMix));
 
   // Surface wobble — this is what stops it looking like tidy CAD geometry.
   // Ramped up mid-morph and near-zero when a shape is held, so it melts while
@@ -334,7 +338,8 @@ float groundShadow(vec2 p) {
     s += b * uShapeMix;
   }
 
-  s += shadowBlot(p, gCursor, 0.17 + 0.10 * uPress) * uPointerActive;
+  // Matches the field: the cursor lobe only exists while the blob does.
+  s += shadowBlot(p, gCursor, 0.17 + 0.10 * uPress) * uPointerActive * (1.0 - uShapeMix);
   return clamp(s, 0.0, 1.0);
 }
 
