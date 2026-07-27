@@ -3,7 +3,7 @@
 A one-screen landing page: an address, a contact form, and a raymarched liquid-chrome
 centrepiece. No portfolio grid, no case studies — the centrepiece is the work sample.
 
-**~20 KB gzipped total. Zero runtime dependencies.**
+**~21 KB gzipped total. Zero runtime dependencies.**
 
 ```bash
 npm install
@@ -19,7 +19,7 @@ from the system stack, so there are no font requests and no layout shift.
 
 | | gzipped |
 |---|---|
-| JS | 15.8 KB |
+| JS | 16.9 KB |
 | CSS | 2.2 KB |
 | HTML | 1.7 KB |
 
@@ -81,7 +81,11 @@ dithers its output, which makes PNG nearly incompressible (1.3 MB versus 35 KB).
 
 ## Theming
 
-Dark by default (Tokyo Night), light is Apple's own grey. An explicit choice is stored in
+Dark by default — a neon set on near-black, not a dim version of the light one. The
+studio room goes almost black so the body of the metal stays black and only the gels
+register; that near-black-with-hot-edges contrast is the whole look, and a merely dim
+room gives grey plastic instead. Light is Apple's own grey and is unchanged by any of
+this. An explicit choice is stored in
 `localStorage`; there is no `prefers-color-scheme` fallback by design, so the page's
 identity is the same for everyone on a first visit. An inline script in `<head>` applies
 the stored choice before first paint, otherwise someone who chose light gets a flash of
@@ -90,6 +94,23 @@ dark on every load.
 The DOM flips instantly via `data-theme`, but the shader crossfades: a single eased
 `uDark` uniform drives both the studio palette and the page background, so the
 centrepiece relights over ~0.5s rather than snapping. Both palettes clear WCAG AA.
+
+Dark mode adds two things light mode does not have, both faded in by `uDark`:
+
+- **Bloom**, from the ray's closest approach to the object's *centre*. Deriving it from
+  the march's `minD` looks obvious — it is already tracked and it hugs the silhouette —
+  but it cannot work: the anisotropic primitives under-report distance by up to their
+  largest stretch (9.44 for the tree's tiers), so a ray passing half a unit away reports
+  `minD ~0.05` and lights at nearly full strength. That produced a hard-edged magenta
+  disc the width of the bounding sphere. The analytic version is centre-based rather
+  than silhouette-shaped, which matches how the reference art actually looks anyway.
+- **Emissive filaments**, the zero-crossings of a product of sines. Domain-warp them
+  first: taken straight, those crossings form a regular lattice that reads as a
+  wireframe cage rather than veins.
+
+Bloom is composited onto the background *before* the metal, so it spills around the
+silhouette without ever lifting the object's own blacks — which are what make the neon
+read as neon.
 
 ## Performance
 

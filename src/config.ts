@@ -5,7 +5,7 @@
 export const site = {
   name: 'Stephen Cronk',
   /** One quiet line under the name. Keep it short — the blob is the loud thing. */
-  role: 'Web developer',
+  role: 'Design Engineer',
   email: 'stephenc.dev@gmail.com',
   /** Footer link. Set to a URL to show it again; null removes it entirely. */
   github: null as string | null,
@@ -28,5 +28,5 @@ export const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xlgqajrg'
  */
 export const palette = {
   paperLight: '#f5f5f7',
-  paperDark: '#1a1b26',
+  paperDark: '#0a0812',
 } as const

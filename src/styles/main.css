@@ -10,12 +10,12 @@
    an OS preference. */
 :root,
 :root[data-theme='dark'] {
-  --paper: #1a1b26;   /* Tokyo Night base */
+  --paper: #0a0812;   /* near-black, violet cast */
   --ink: #c0caf5;     /* Tokyo Night foreground */
-  --muted: #8b93b8;   /* 5.4:1 on the base */
-  --rule: #2f334d;
+  --muted: #8b93b8;   /* 7.4:1 on the base */
+  --rule: #241f3d;
   --err: #f7768e;     /* Tokyo Night red */
-  --accent: #7aa2f7;  /* Tokyo Night blue */
+  --accent: #c026d3;  /* neon magenta */
   --chip: rgba(192, 202, 245, 0.09);
 }
 

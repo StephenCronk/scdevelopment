@@ -72,12 +72,12 @@ uniform float uWobble;     // surface noise; ramped up mid-morph
 const vec3 TOP_L    = vec3(0.58,  0.61,  0.66);  // faintly cool ceiling
 const vec3 GROUND_L = vec3(0.038, 0.044, 0.068); // cool floor
 
-// Dark mode lights the same set with Tokyo Night. The room goes much darker so
-// the metal still reads as a mirror against a dark page — a bright studio on a
-// dark background makes the object look pasted on — and the gels get far more
-// saturated, since on paper they would overwhelm but here they are the colour.
-const vec3 TOP_D    = vec3(0.150, 0.170, 0.260);
-const vec3 GROUND_D = vec3(0.008, 0.009, 0.018);
+// Dark mode is a neon set, not a dim version of the paper one. The room goes
+// almost black so the body of the metal stays black and only the gels register
+// — that near-black-with-hot-edges contrast is the whole look. A merely dim
+// room gives grey plastic.
+const vec3 TOP_D    = vec3(0.030, 0.024, 0.058);
+const vec3 GROUND_D = vec3(0.0015, 0.0012, 0.004);
 
 // Gelled studio lights. Chrome has no colour of its own — everything you see in
 // it is the room, so tinting the sources is what actually puts colour in the
@@ -92,11 +92,41 @@ const vec3 FILL_L = vec3(0.48, 0.70, 1.00); // blue
 const vec3 RIM_L  = vec3(0.78, 0.60, 1.00); // violet
 const vec3 ACC_L  = vec3(0.45, 0.85, 1.00); // cyan
 
-// Tokyo Night, converted to linear: #7aa2f7 blue, #bb9af7 purple, #7dcfff cyan.
-const vec3 KEY_D  = vec3(0.80, 0.88, 1.00);
-const vec3 FILL_D = vec3(0.19, 0.36, 0.93);
-const vec3 RIM_D  = vec3(0.49, 0.33, 0.93);
-const vec3 ACC_D  = vec3(0.21, 0.62, 1.00);
+// Neon gels, linear. Far past Tokyo Night's UI colours: those are tuned to be
+// readable as text on a screen, and read as pastel once they are the only light
+// in a black room. #ff2bd6 magenta, #a855f7 violet, #22d3ee electric cyan.
+const vec3 KEY_D  = vec3(0.85, 0.80, 1.00);
+const vec3 FILL_D = vec3(1.00, 0.024, 0.673);
+const vec3 RIM_D  = vec3(0.393, 0.091, 0.931);
+const vec3 ACC_D  = vec3(0.015, 0.651, 0.854);
+
+// Bloom. The references all have it and a single-pass raymarcher has no
+// post-process to blur with — but the march already tracks each ray's closest
+// approach to the surface for antialiasing, and that doubles as a
+// silhouette-hugging glow for free. A second analytic term, distance from the
+// ray to the object's centre, adds the wide ambient wash; it is not
+// silhouette-shaped but it is cheap and needs no march, so it works outside the
+// bounding sphere where minD does not exist.
+// Both terms are analytic, from the ray's closest approach to the object's
+// centre. Deriving the glow from the march's minD instead seems obvious — it is
+// already tracked, and it hugs the silhouette — but it cannot work here: the
+// anisotropic primitives under-report distance by up to their largest stretch
+// (9.44 for the tree's tiers), so a ray passing half a unit from a tier reports
+// minD ~0.05 and lights up at nearly full strength. That produced a hard-edged
+// magenta disc the width of the bounding sphere.
+#define GLOW_CORE     2.2    // falloff of the bright core
+#define GLOW_CORE_I   0.10
+#define GLOW_HALO_R   2.30   // outer reach of the soft wash
+#define GLOW_HALO_I   0.045
+const vec3 GLOW_A = vec3(0.42, 0.04, 0.95); // violet
+const vec3 GLOW_B = vec3(0.95, 0.05, 0.55); // magenta
+
+// Emissive filaments. The zero-crossings of a product of sines form a connected
+// network across the surface, which is what reads as veins of energy rather
+// than as spots.
+#define VEIN_GAIN  0.70
+#define VEIN_WIDTH 0.055
+const vec3 VEIN_COL = vec3(0.80, 0.09, 1.00);
 
 // Resolved once per pixel in main() rather than per env() call — env() runs
 // three times for the dispersion split and the palette does not vary by ray.
@@ -112,7 +142,7 @@ void resolvePalette() {
   gAcc       = mix(ACC_L,    ACC_D,    uDark);
   // The light strips have to punch harder against a dark room to still read as
   // specular highlights rather than as part of the body tone.
-  gStripGain = mix(1.0, 1.45, uDark);
+  gStripGain = mix(1.0, 1.55, uDark);
 }
 
 // Iridescence palette. Rather than cycling the full colour wheel — which
@@ -425,13 +455,16 @@ void main() {
   // instead of floating on top of it.
   // A cast shadow on an already dark page turns to mud, so ease it off; the
   // vignette likewise has less room to work before it crushes.
-  float shadowStrength = mix(0.34, 0.20, uDark);
+  float shadowStrength = mix(0.34, 0.10, uDark);
   float vignette = mix(0.21, 0.13, uDark);
   vec3 col = uPaper * (1.0 - shadowStrength * groundShadow(suv));
 
   // Bounding-sphere test. Background pixels cost one quadratic rather than a
   // full march — by far the biggest win available here, since raymarching is
   // fill-rate bound.
+  vec3 metal = vec3(0.0);
+  float cov = 0.0;
+
   float b = dot(ro, rd);
   float c2 = dot(ro, ro) - BOUND * BOUND;
   float disc = b * b - c2;
@@ -482,7 +515,7 @@ void main() {
     // Hits shade fully; misses fade out by closest approach, which is what
     // antialiases the silhouette (minD approximates screen-space distance
     // to the surface there).
-    float cov = tHit >= 0.0 ? 1.0 : 1.0 - smoothstep(0.0, pxAt * tAt * 1.5, minD);
+    cov = tHit >= 0.0 ? 1.0 : 1.0 - smoothstep(0.0, pxAt * tAt * 1.5, minD);
     float tShade = tHit >= 0.0 ? tHit : tAt;
 
     if (cov > 0.0) {
@@ -501,7 +534,7 @@ void main() {
       );
 
       vec3 F0 = vec3(0.93, 0.95, 0.99);
-      vec3 metal = refl * mix(F0, vec3(1.0), fres) * ao(p, n);
+      metal = refl * mix(F0, vec3(1.0), fres) * ao(p, n);
 
       // Thin-film interference. A cosine palette offset per channel approximates
       // the spectral banding of anodised or oil-filmed metal. Driven by view
@@ -516,11 +549,32 @@ void main() {
       // Shoulder so the blown light strips roll off instead of clipping to a
       // flat white blob. Applied to the metal only — the paper has to come out
       // exactly as authored, since the CSS background has to match it.
-      metal = metal / (1.0 + metal * 0.30) * 1.30;
+      // Emissive veins, dark mode only — additive, so they survive the shoulder
+      // below as blown-out cores with coloured fringes rather than being
+      // compressed into the body tone.
+      // Domain-warped first. Straight product-of-sines zero-crossings form a
+      // regular lattice, which reads as a wireframe cage over the object rather
+      // than as veins; displacing the sample point by another sine field breaks
+      // the lattice into wandering filaments.
+      vec3 w = p + 0.38 * sin(p.yzx * 3.1 + t * 0.4);
+      float fil = sin(w.x * 6.5 + t * 0.5) * sin(w.y * 5.8 - t * 0.4) * sin(w.z * 7.1 + t * 0.6);
+      metal += VEIN_COL * (1.0 - smoothstep(0.0, VEIN_WIDTH, abs(fil))) * VEIN_GAIN * uDark;
 
-      col = mix(col, metal, cov);
+      metal = metal / (1.0 + metal * 0.30) * 1.30;
     }
   }
+
+  // Bloom goes on the background before the metal is composited, so it reads as
+  // light spilling around the silhouette and never lifts the object's own
+  // blacks — which are what make the neon look neon.
+  float ca = length(ro + rd * max(-dot(ro, rd), 0.0));
+  float core = exp(-ca * GLOW_CORE);
+  float halo = 1.0 - smoothstep(0.0, GLOW_HALO_R, ca);
+  halo = halo * halo * halo;
+  vec3 glowCol = mix(GLOW_A, GLOW_B, smoothstep(-0.7, 0.7, suv.y + 0.35 * suv.x));
+  col += glowCol * (core * GLOW_CORE_I + halo * GLOW_HALO_I) * uDark;
+
+  col = mix(col, metal, cov);
 
   // Edge falloff across the whole frame, blob included, so the composition
   // holds together and the empty margins read as deliberate.
