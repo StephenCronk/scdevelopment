@@ -104,9 +104,20 @@ Dark mode adds two things light mode does not have, both faded in by `uDark`:
   `minD ~0.05` and lights at nearly full strength. That produced a hard-edged magenta
   disc the width of the bounding sphere. The analytic version is centre-based rather
   than silhouette-shaped, which matches how the reference art actually looks anyway.
-- **Emissive filaments**, the zero-crossings of a product of sines. Domain-warp them
-  first: taken straight, those crossings form a regular lattice that reads as a
-  wireframe cage rather than veins.
+- **Neon filaments**, the zero-crossings of a product of sines, living in the
+  *environment* rather than on the surface. Painted onto the surface in object space
+  they sit still relative to the geometry and read as a net wrapped around it; in the
+  room they are reflected, so they sweep across the metal as it turns and mirror
+  correctly off every face. Domain-warp them either way — taken straight, those
+  crossings form a regular lattice that reads as a wireframe cage.
+- **Black chrome.** The body is kept dark by dropping base reflectance (`F0_D`), not by
+  dimming the lights: dimming would take the highlights with it and give grey plastic,
+  whereas a low F0 still lets fresnel drive reflectance to 1 at grazing angles, so the
+  rims stay hot while the broad faces go black.
+
+The two saturated gels come from opposite sides — electric blue from the left, purple
+from the right — and the bloom's hue splits the same way across the frame, so the two
+colours read as separate sources rather than one wash.
 
 Bloom is composited onto the background *before* the metal, so it spills around the
 silhouette without ever lifting the object's own blacks — which are what make the neon

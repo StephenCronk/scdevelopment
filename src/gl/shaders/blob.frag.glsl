@@ -76,7 +76,7 @@ const vec3 GROUND_L = vec3(0.038, 0.044, 0.068); // cool floor
 // almost black so the body of the metal stays black and only the gels register
 // — that near-black-with-hot-edges contrast is the whole look. A merely dim
 // room gives grey plastic.
-const vec3 TOP_D    = vec3(0.030, 0.024, 0.058);
+const vec3 TOP_D    = vec3(0.016, 0.014, 0.040);
 const vec3 GROUND_D = vec3(0.0015, 0.0012, 0.004);
 
 // Gelled studio lights. Chrome has no colour of its own — everything you see in
@@ -85,7 +85,7 @@ const vec3 GROUND_D = vec3(0.0015, 0.0012, 0.004);
 const vec3 KEY_DIR  = vec3( 0.35,  0.86,  0.37);
 const vec3 FILL_DIR = vec3(-0.72,  0.30,  0.62);
 const vec3 RIM_DIR  = vec3( 0.15, -0.25, -0.96);
-const vec3 ACC_DIR  = vec3(-0.55, -0.42,  0.72);
+const vec3 ACC_DIR  = vec3( 0.62, -0.30,  0.72);
 
 const vec3 KEY_L  = vec3(0.92, 0.95, 1.00); // neutral, faintly cool
 const vec3 FILL_L = vec3(0.48, 0.70, 1.00); // blue
@@ -94,11 +94,12 @@ const vec3 ACC_L  = vec3(0.45, 0.85, 1.00); // cyan
 
 // Neon gels, linear. Far past Tokyo Night's UI colours: those are tuned to be
 // readable as text on a screen, and read as pastel once they are the only light
-// in a black room. #ff2bd6 magenta, #a855f7 violet, #22d3ee electric cyan.
-const vec3 KEY_D  = vec3(0.85, 0.80, 1.00);
-const vec3 FILL_D = vec3(1.00, 0.024, 0.673);
-const vec3 RIM_D  = vec3(0.393, 0.091, 0.931);
-const vec3 ACC_D  = vec3(0.015, 0.651, 0.854);
+// in a black room. Weighted to blue and violet — magenta dominates fast because
+// the iridescence already pushes the surface pink at grazing angles.
+const vec3 KEY_D  = vec3(0.82, 0.84, 1.00);
+const vec3 FILL_D = vec3(0.05, 0.28, 1.00); // electric blue, from the left
+const vec3 RIM_D  = vec3(0.42, 0.12, 1.00); // violet, from behind (rim only)
+const vec3 ACC_D  = vec3(0.55, 0.06, 1.00); // purple, from the right
 
 // Bloom. The references all have it and a single-pass raymarcher has no
 // post-process to blur with — but the march already tracks each ray's closest
@@ -115,22 +116,33 @@ const vec3 ACC_D  = vec3(0.015, 0.651, 0.854);
 // minD ~0.05 and lights up at nearly full strength. That produced a hard-edged
 // magenta disc the width of the bounding sphere.
 #define GLOW_CORE     2.2    // falloff of the bright core
-#define GLOW_CORE_I   0.10
-#define GLOW_HALO_R   2.30   // outer reach of the soft wash
-#define GLOW_HALO_I   0.045
-const vec3 GLOW_A = vec3(0.42, 0.04, 0.95); // violet
-const vec3 GLOW_B = vec3(0.95, 0.05, 0.55); // magenta
+#define GLOW_CORE_I   0.34
+#define GLOW_HALO_R   2.70   // outer reach of the soft wash
+#define GLOW_HALO_I   0.15
+const vec3 GLOW_A = vec3(0.05, 0.24, 1.00); // electric blue, left
+const vec3 GLOW_B = vec3(0.55, 0.06, 1.00); // purple, right
 
-// Emissive filaments. The zero-crossings of a product of sines form a connected
-// network across the surface, which is what reads as veins of energy rather
-// than as spots.
-#define VEIN_GAIN  0.70
-#define VEIN_WIDTH 0.055
-const vec3 VEIN_COL = vec3(0.80, 0.09, 1.00);
+// Neon filaments. These live in the *environment*, not on the surface. Painted
+// onto the surface in object space they sit still relative to the geometry and
+// read as a net wrapped around it; in the room they are reflected, so they sweep
+// across the metal as it turns and mirror correctly off every face — which is
+// what makes them read as reflections of neon tubes rather than as decoration.
+// Thin and quick: at any real width they stop being filaments and become a mesh.
+#define VEIN_GAIN  1.15
+#define VEIN_WIDTH 0.030
+const vec3 VEIN_COL = vec3(0.45, 0.12, 1.00);
+
+// Base reflectance. Light mode is a near-perfect mirror; dark mode is black
+// chrome, which is what actually keeps the body dark. Turning the lights down
+// instead would dim the highlights too and give grey plastic — here fresnel
+// still drives reflectance to 1 at grazing angles, so the rims stay hot while
+// the broad faces go black.
+const vec3 F0_L = vec3(0.93, 0.95, 0.99);
+const vec3 F0_D = vec3(0.30, 0.33, 0.44);
 
 // Resolved once per pixel in main() rather than per env() call — env() runs
 // three times for the dispersion split and the palette does not vary by ray.
-vec3 gTop, gGround, gKey, gFill, gRim, gAcc;
+vec3 gTop, gGround, gKey, gFill, gRim, gAcc, gF0;
 float gStripGain;
 
 void resolvePalette() {
@@ -140,9 +152,10 @@ void resolvePalette() {
   gFill      = mix(FILL_L,   FILL_D,   uDark);
   gRim       = mix(RIM_L,    RIM_D,    uDark);
   gAcc       = mix(ACC_L,    ACC_D,    uDark);
+  gF0        = mix(F0_L,     F0_D,     uDark);
   // The light strips have to punch harder against a dark room to still read as
   // specular highlights rather than as part of the body tone.
-  gStripGain = mix(1.0, 1.55, uDark);
+  gStripGain = mix(1.0, 1.30, uDark);
 }
 
 // Iridescence palette. Rather than cycling the full colour wheel — which
@@ -341,7 +354,15 @@ vec3 env(vec3 r) {
   c += mix(vec3(1.0), gKey, 0.55) * 1.90 * gStripGain * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
   c += gFill * 0.38 * gStripGain * smoothstep(0.45, 0.97, dot(q, FILL_DIR));
   c += gRim  * 0.34 * gStripGain * smoothstep(0.66, 1.00, dot(q, RIM_DIR));
-  c += gAcc  * 0.22 * gStripGain * smoothstep(0.55, 0.98, dot(q, ACC_DIR));
+  c += gAcc  * mix(0.22, 0.40, uDark) * gStripGain * smoothstep(0.55, 0.98, dot(q, ACC_DIR));
+
+  // Domain-warped first: straight product-of-sines zero-crossings form a regular
+  // lattice, which reads as a cage. Displacing by a second sine field breaks it
+  // into wandering filaments, and running both faster keeps them travelling.
+  vec3 wq = q * 1.7 + 0.55 * sin(q.yzx * 3.0 + uTime * 0.9);
+  float fil = sin(wq.x * 2.2 + uTime * 1.1) * sin(wq.y * 2.0 - uTime * 0.9)
+            * sin(wq.z * 2.4 + uTime * 1.3);
+  c += VEIN_COL * (1.0 - smoothstep(0.0, VEIN_WIDTH, abs(fil))) * VEIN_GAIN * uDark;
 
   return c;
 }
@@ -533,8 +554,7 @@ void main() {
         env(normalize(r + n * disp)).b
       );
 
-      vec3 F0 = vec3(0.93, 0.95, 0.99);
-      metal = refl * mix(F0, vec3(1.0), fres) * ao(p, n);
+      metal = refl * mix(gF0, vec3(1.0), fres) * ao(p, n);
 
       // Thin-film interference. A cosine palette offset per channel approximates
       // the spectral banding of anodised or oil-filmed metal. Driven by view
@@ -549,17 +569,6 @@ void main() {
       // Shoulder so the blown light strips roll off instead of clipping to a
       // flat white blob. Applied to the metal only — the paper has to come out
       // exactly as authored, since the CSS background has to match it.
-      // Emissive veins, dark mode only — additive, so they survive the shoulder
-      // below as blown-out cores with coloured fringes rather than being
-      // compressed into the body tone.
-      // Domain-warped first. Straight product-of-sines zero-crossings form a
-      // regular lattice, which reads as a wireframe cage over the object rather
-      // than as veins; displacing the sample point by another sine field breaks
-      // the lattice into wandering filaments.
-      vec3 w = p + 0.38 * sin(p.yzx * 3.1 + t * 0.4);
-      float fil = sin(w.x * 6.5 + t * 0.5) * sin(w.y * 5.8 - t * 0.4) * sin(w.z * 7.1 + t * 0.6);
-      metal += VEIN_COL * (1.0 - smoothstep(0.0, VEIN_WIDTH, abs(fil))) * VEIN_GAIN * uDark;
-
       metal = metal / (1.0 + metal * 0.30) * 1.30;
     }
   }
@@ -571,7 +580,7 @@ void main() {
   float core = exp(-ca * GLOW_CORE);
   float halo = 1.0 - smoothstep(0.0, GLOW_HALO_R, ca);
   halo = halo * halo * halo;
-  vec3 glowCol = mix(GLOW_A, GLOW_B, smoothstep(-0.7, 0.7, suv.y + 0.35 * suv.x));
+  vec3 glowCol = mix(GLOW_A, GLOW_B, smoothstep(-1.0, 1.0, suv.x + 0.30 * suv.y));
   col += glowCol * (core * GLOW_CORE_I + halo * GLOW_HALO_I) * uDark;
 
   col = mix(col, metal, cov);
