@@ -114,6 +114,14 @@ Dark mode adds two things light mode does not have, both faded in by `uDark`:
   dimming the lights: dimming would take the highlights with it and give grey plastic,
   whereas a low F0 still lets fresnel drive reflectance to 1 at grazing angles, so the
   rims stay hot while the broad faces go black.
+- **Gelled lights, not gelled reflections.** Every source is coloured at the source in
+  dark mode, including the overhead strips and the key — leaving those neutral makes the
+  whole object read as white-lit no matter what the other gels are doing, because the
+  strips are the brightest thing in frame. Intensity then goes *up*, not down: a blown
+  core on a saturated purple reads as a hot neon tube, where a blown core on a white
+  light just reads as a white light.
+- **Smoother surface.** Surface noise is cut to 30% in dark mode; speckle breaks the
+  reflection into fragments, and black-neon depends on long clean sweeps of light.
 
 The two saturated gels come from opposite sides — electric blue from the left, purple
 from the right — and the bloom's hue splits the same way across the frame, so the two

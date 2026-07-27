@@ -28,5 +28,5 @@ export const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xlgqajrg'
  */
 export const palette = {
   paperLight: '#f5f5f7',
-  paperDark: '#0a0812',
+  paperDark: '#050309',
 } as const

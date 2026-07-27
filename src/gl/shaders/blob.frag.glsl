@@ -72,11 +72,19 @@ uniform float uWobble;     // surface noise; ramped up mid-morph
 const vec3 TOP_L    = vec3(0.58,  0.61,  0.66);  // faintly cool ceiling
 const vec3 GROUND_L = vec3(0.038, 0.044, 0.068); // cool floor
 
+// The overhead strips are the glossy streaks on the metal. Neutral in light
+// mode; in dark mode they are gelled too, or they stay the brightest thing in
+// frame and the whole object reads as white-lit regardless of the other gels.
+const vec3 STRIP1_L = vec3(0.97, 0.99, 1.00);
+const vec3 STRIP2_L = vec3(0.72, 0.86, 1.00);
+const vec3 STRIP1_D = vec3(0.50, 0.05, 1.00); // purple, right/overhead
+const vec3 STRIP2_D = vec3(0.05, 0.32, 1.00); // blue
+
 // Dark mode is a neon set, not a dim version of the paper one. The room goes
 // almost black so the body of the metal stays black and only the gels register
 // — that near-black-with-hot-edges contrast is the whole look. A merely dim
 // room gives grey plastic.
-const vec3 TOP_D    = vec3(0.016, 0.014, 0.040);
+const vec3 TOP_D    = vec3(0.011, 0.009, 0.030);
 const vec3 GROUND_D = vec3(0.0015, 0.0012, 0.004);
 
 // Gelled studio lights. Chrome has no colour of its own — everything you see in
@@ -96,7 +104,7 @@ const vec3 ACC_L  = vec3(0.45, 0.85, 1.00); // cyan
 // readable as text on a screen, and read as pastel once they are the only light
 // in a black room. Weighted to blue and violet — magenta dominates fast because
 // the iridescence already pushes the surface pink at grazing angles.
-const vec3 KEY_D  = vec3(0.82, 0.84, 1.00);
+const vec3 KEY_D  = vec3(0.45, 0.03, 1.00); // neon purple, not a white key
 const vec3 FILL_D = vec3(0.05, 0.28, 1.00); // electric blue, from the left
 const vec3 RIM_D  = vec3(0.42, 0.12, 1.00); // violet, from behind (rim only)
 const vec3 ACC_D  = vec3(0.55, 0.06, 1.00); // purple, from the right
@@ -115,10 +123,10 @@ const vec3 ACC_D  = vec3(0.55, 0.06, 1.00); // purple, from the right
 // (9.44 for the tree's tiers), so a ray passing half a unit from a tier reports
 // minD ~0.05 and lights up at nearly full strength. That produced a hard-edged
 // magenta disc the width of the bounding sphere.
-#define GLOW_CORE     2.2    // falloff of the bright core
-#define GLOW_CORE_I   0.34
-#define GLOW_HALO_R   2.70   // outer reach of the soft wash
-#define GLOW_HALO_I   0.15
+#define GLOW_CORE     3.6    // falloff of the bright core
+#define GLOW_CORE_I   0.72
+#define GLOW_HALO_R   1.95   // outer reach of the soft wash
+#define GLOW_HALO_I   0.040
 const vec3 GLOW_A = vec3(0.05, 0.24, 1.00); // electric blue, left
 const vec3 GLOW_B = vec3(0.55, 0.06, 1.00); // purple, right
 
@@ -142,7 +150,7 @@ const vec3 F0_D = vec3(0.30, 0.33, 0.44);
 
 // Resolved once per pixel in main() rather than per env() call — env() runs
 // three times for the dispersion split and the palette does not vary by ray.
-vec3 gTop, gGround, gKey, gFill, gRim, gAcc, gF0;
+vec3 gTop, gGround, gKey, gFill, gRim, gAcc, gF0, gStrip1, gStrip2;
 float gStripGain;
 
 void resolvePalette() {
@@ -153,9 +161,11 @@ void resolvePalette() {
   gRim       = mix(RIM_L,    RIM_D,    uDark);
   gAcc       = mix(ACC_L,    ACC_D,    uDark);
   gF0        = mix(F0_L,     F0_D,     uDark);
+  gStrip1    = mix(STRIP1_L, STRIP1_D, uDark);
+  gStrip2    = mix(STRIP2_L, STRIP2_D, uDark);
   // The light strips have to punch harder against a dark room to still read as
   // specular highlights rather than as part of the body tone.
-  gStripGain = mix(1.0, 1.30, uDark);
+  gStripGain = mix(1.0, 1.90, uDark);
 }
 
 // Iridescence palette. Rather than cycling the full colour wheel — which
@@ -263,7 +273,10 @@ float map(vec3 p) {
   // Surface wobble — this is what stops it looking like tidy CAD geometry.
   // Ramped up mid-morph and near-zero when a shape is held, so it melts while
   // moving and goes crisp on arrival.
-  d -= uWobble * sin(p.x * 5.7 + t * 0.9) * sin(p.y * 6.3 - t * 0.7) * sin(p.z * 5.1 + t * 1.1);
+  // Smoother in dark mode: surface noise breaks the reflection into speckle,
+  // and a black-neon look depends on long clean sweeps of light.
+  d -= uWobble * mix(1.0, 0.30, uDark)
+     * sin(p.x * 5.7 + t * 0.9) * sin(p.y * 6.3 - t * 0.7) * sin(p.z * 5.1 + t * 1.1);
 
   // Ripple travelling outward after a submit.
   d -= 0.05 * pulse * sin(length(p) * 14.0 - uEvent * 9.0);
@@ -329,10 +342,10 @@ vec3 env(vec3 r) {
 
   // Overhead light strips.
   float strip1 = smoothstep(0.42, 0.50, y) * (1.0 - smoothstep(0.72, 0.82, y));
-  c += vec3(0.97, 0.99, 1.00) * 1.70 * gStripGain * strip1;
+  c += gStrip1 * 1.70 * gStripGain * strip1;
 
   float strip2 = smoothstep(0.02, 0.07, y) * (1.0 - smoothstep(0.16, 0.23, y));
-  c += vec3(0.72, 0.86, 1.00) * 0.55 * gStripGain * strip2;
+  c += gStrip2 * 0.55 * gStripGain * strip2;
 
   // Vertical window panels. Crossed structure — horizontal strips plus vertical
   // panels — is what makes a reflection read as a room instead of a gradient.
@@ -351,7 +364,7 @@ vec3 env(vec3 r) {
   // blobs of paint — but kept weak. These add light, and pushing them harder
   // lifts the dark floor reflection, which is the contrast the whole metallic
   // read depends on.
-  c += mix(vec3(1.0), gKey, 0.55) * 1.90 * gStripGain * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
+  c += mix(vec3(1.0), gKey, mix(0.55, 1.0, uDark)) * 1.90 * gStripGain * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
   c += gFill * 0.38 * gStripGain * smoothstep(0.45, 0.97, dot(q, FILL_DIR));
   c += gRim  * 0.34 * gStripGain * smoothstep(0.66, 1.00, dot(q, RIM_DIR));
   c += gAcc  * mix(0.22, 0.40, uDark) * gStripGain * smoothstep(0.55, 0.98, dot(q, ACC_DIR));
@@ -477,7 +490,9 @@ void main() {
   // A cast shadow on an already dark page turns to mud, so ease it off; the
   // vignette likewise has less room to work before it crushes.
   float shadowStrength = mix(0.34, 0.10, uDark);
-  float vignette = mix(0.21, 0.13, uDark);
+  // Almost nothing in dark mode — the page is already near black, and a
+  // vignette on top of that just muddies it.
+  float vignette = mix(0.21, 0.04, uDark);
   vec3 col = uPaper * (1.0 - shadowStrength * groundShadow(suv));
 
   // Bounding-sphere test. Background pixels cost one quadratic rather than a
