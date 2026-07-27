@@ -1,15 +1,35 @@
 /* ---------------------------------------------------------------------------
-   Paper white / ink. One viewport, no scroll on desktop.
-   The type stays deliberately quiet — the centrepiece is the loud thing.
+   One viewport, no scroll on desktop. Dark (Tokyo Night) by default, light
+   (Apple grey) on request. The type stays deliberately quiet — the centrepiece
+   is the loud thing.
    --------------------------------------------------------------------------- */
 
-:root {
-  --paper: #f4f3ef;
-  --ink: #111111;
-  --muted: #6b6862;   /* 5.2:1 on paper — passes AA for body text */
-  --rule: #d9d6ce;
-  --err: #9a2f21;
+/* Light is Apple's own light grey and near-black; dark is Tokyo Night.
+   Dark is the default, set on <html> in the markup, so these live under an
+   attribute rather than a media query — the toggle is an explicit choice, not
+   an OS preference. */
+:root,
+:root[data-theme='dark'] {
+  --paper: #1a1b26;   /* Tokyo Night base */
+  --ink: #c0caf5;     /* Tokyo Night foreground */
+  --muted: #8b93b8;   /* 5.4:1 on the base */
+  --rule: #2f334d;
+  --err: #f7768e;     /* Tokyo Night red */
+  --accent: #7aa2f7;  /* Tokyo Night blue */
+  --chip: rgba(192, 202, 245, 0.09);
+}
 
+:root[data-theme='light'] {
+  --paper: #f5f5f7;   /* Apple light grey */
+  --ink: #1d1d1f;     /* Apple near-black */
+  --muted: #6e6e73;   /* Apple secondary, 5.0:1 on the base */
+  --rule: #d2d2d7;
+  --err: #9a2f21;
+  --accent: #0066cc;
+  --chip: rgba(29, 29, 31, 0.05);
+}
+
+:root {
   --gutter: clamp(1.5rem, 5vw, 4.5rem);
   --stack: clamp(1.75rem, 4vh, 3rem);
 
@@ -18,6 +38,7 @@
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -31,6 +52,7 @@ html, body { height: 100%; }
 body {
   margin: 0;
   background: var(--paper);
+  transition: background-color 480ms var(--ease), color 480ms var(--ease);
   color: var(--ink);
   font-family: var(--sans);
   font-size: 16px;
@@ -244,7 +266,7 @@ body {
 .field textarea { resize: vertical; min-height: 3.4em; }
 
 .field input:hover,
-.field textarea:hover { border-color: #b8b4aa; }
+.field textarea:hover { border-color: var(--muted); }
 
 .field input:focus,
 .field textarea:focus {
@@ -356,5 +378,57 @@ body {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+
+/* --- theme toggle --------------------------------------------------------- */
+
+.theme-toggle {
+  position: fixed;
+  top: clamp(1.5rem, 4vh, 3rem);
+  right: var(--gutter);
+  z-index: 2;
+
+  appearance: none;
+  border: 1px solid var(--rule);
+  background: var(--chip);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Backdrop blur so it stays legible if the centrepiece drifts underneath. */
+  backdrop-filter: blur(8px);
+  transition: color 220ms var(--ease), border-color 220ms var(--ease),
+              background-color 220ms var(--ease);
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.theme-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+  transition: background-color 320ms var(--ease);
+}
+
+@media (max-width: 640px) {
+  .theme-toggle {
+    top: auto;
+    bottom: clamp(1rem, 3vh, 2rem);
+    right: var(--gutter);
   }
 }

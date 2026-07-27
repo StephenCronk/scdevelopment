@@ -21,6 +21,7 @@ uniform float uPress;          // 0..1, pointer held down
 uniform float uEvent;          // seconds since form submit; large when idle
 uniform float uFocus;          // 0 = hero framing, 1 = contact form open
 uniform vec3  uPaper;          // background colour, LINEAR space
+uniform float uDark;           // 0 = paper studio, 1 = Tokyo Night studio
 
 // Satellite metaballs: xyz = centre, w = radius. Computed on the CPU once per
 // frame rather than per pixel — map() runs ~100+ times per pixel, and deriving
@@ -63,30 +64,56 @@ uniform float uWobble;     // surface noise; ramped up mid-morph
                               // Further down and it detaches into a smudge
                               // rather than reading as the mass's own shadow.
 #define SHADOW_SQUASH   0.24  // vertical foreshortening of the cast shadow
-#define SHADOW_STRENGTH 0.34
-#define VIGNETTE        0.21  // edge falloff — makes the empty page read as
-                              // composed rather than merely blank
 
 // A studio: dark floor, bright ceiling, hard horizon. The contrast is the whole
 // trick — a low-contrast environment reflects as matte plastic.
 // The ceiling is deliberately mid-grey, not white: it's the body tone of the
 // metal, and the strips and key light have to be able to read as brighter.
-const vec3 TOP_C    = vec3(0.58, 0.61, 0.66);   // faintly cool ceiling
-const vec3 GROUND_C = vec3(0.038, 0.044, 0.068); // cool floor
+const vec3 TOP_L    = vec3(0.58,  0.61,  0.66);  // faintly cool ceiling
+const vec3 GROUND_L = vec3(0.038, 0.044, 0.068); // cool floor
+
+// Dark mode lights the same set with Tokyo Night. The room goes much darker so
+// the metal still reads as a mirror against a dark page — a bright studio on a
+// dark background makes the object look pasted on — and the gels get far more
+// saturated, since on paper they would overwhelm but here they are the colour.
+const vec3 TOP_D    = vec3(0.150, 0.170, 0.260);
+const vec3 GROUND_D = vec3(0.008, 0.009, 0.018);
 
 // Gelled studio lights. Chrome has no colour of its own — everything you see in
 // it is the room, so tinting the sources is what actually puts colour in the
-// reflections. Kept to a warm/cool/rose triad plus a teal accent so it reads as
-// a lit set rather than a disco ball.
+// reflections.
 const vec3 KEY_DIR  = vec3( 0.35,  0.86,  0.37);
 const vec3 FILL_DIR = vec3(-0.72,  0.30,  0.62);
 const vec3 RIM_DIR  = vec3( 0.15, -0.25, -0.96);
 const vec3 ACC_DIR  = vec3(-0.55, -0.42,  0.72);
 
-const vec3 KEY_COL  = vec3(0.92, 0.95, 1.00); // neutral, faintly cool
-const vec3 FILL_COL = vec3(0.48, 0.70, 1.00); // blue
-const vec3 RIM_COL  = vec3(0.78, 0.60, 1.00); // violet
-const vec3 ACC_COL  = vec3(0.45, 0.85, 1.00); // cyan
+const vec3 KEY_L  = vec3(0.92, 0.95, 1.00); // neutral, faintly cool
+const vec3 FILL_L = vec3(0.48, 0.70, 1.00); // blue
+const vec3 RIM_L  = vec3(0.78, 0.60, 1.00); // violet
+const vec3 ACC_L  = vec3(0.45, 0.85, 1.00); // cyan
+
+// Tokyo Night, converted to linear: #7aa2f7 blue, #bb9af7 purple, #7dcfff cyan.
+const vec3 KEY_D  = vec3(0.80, 0.88, 1.00);
+const vec3 FILL_D = vec3(0.19, 0.36, 0.93);
+const vec3 RIM_D  = vec3(0.49, 0.33, 0.93);
+const vec3 ACC_D  = vec3(0.21, 0.62, 1.00);
+
+// Resolved once per pixel in main() rather than per env() call — env() runs
+// three times for the dispersion split and the palette does not vary by ray.
+vec3 gTop, gGround, gKey, gFill, gRim, gAcc;
+float gStripGain;
+
+void resolvePalette() {
+  gTop       = mix(TOP_L,    TOP_D,    uDark);
+  gGround    = mix(GROUND_L, GROUND_D, uDark);
+  gKey       = mix(KEY_L,    KEY_D,    uDark);
+  gFill      = mix(FILL_L,   FILL_D,   uDark);
+  gRim       = mix(RIM_L,    RIM_D,    uDark);
+  gAcc       = mix(ACC_L,    ACC_D,    uDark);
+  // The light strips have to punch harder against a dark room to still read as
+  // specular highlights rather than as part of the body tone.
+  gStripGain = mix(1.0, 1.45, uDark);
+}
 
 // Iridescence palette. Rather than cycling the full colour wheel — which
 // unavoidably passes through amber — these oscillate along a single axis from
@@ -245,7 +272,7 @@ vec3 env(vec3 r) {
   // a mirror" cue. Softening it turns the whole thing back into matte plastic.
   // It sits below the equator so the dark floor reads as a crescent along the
   // underside rather than swallowing half the object.
-  vec3 c = mix(GROUND_C, TOP_C, smoothstep(-0.17, -0.10, y));
+  vec3 c = mix(gGround, gTop, smoothstep(-0.17, -0.10, y));
 
   // Lateral colour shift across the room — violet on one side, cyan on the
   // other. Tinting a large area like this is what spreads colour across the
@@ -259,10 +286,10 @@ vec3 env(vec3 r) {
 
   // Overhead light strips.
   float strip1 = smoothstep(0.42, 0.50, y) * (1.0 - smoothstep(0.72, 0.82, y));
-  c += vec3(0.97, 0.99, 1.00) * 1.70 * strip1;
+  c += vec3(0.97, 0.99, 1.00) * 1.70 * gStripGain * strip1;
 
   float strip2 = smoothstep(0.02, 0.07, y) * (1.0 - smoothstep(0.16, 0.23, y));
-  c += vec3(0.72, 0.86, 1.00) * 0.55 * strip2;
+  c += vec3(0.72, 0.86, 1.00) * 0.55 * gStripGain * strip2;
 
   // Vertical window panels. Crossed structure — horizontal strips plus vertical
   // panels — is what makes a reflection read as a room instead of a gradient.
@@ -281,10 +308,10 @@ vec3 env(vec3 r) {
   // blobs of paint — but kept weak. These add light, and pushing them harder
   // lifts the dark floor reflection, which is the contrast the whole metallic
   // read depends on.
-  c += mix(vec3(1.0), KEY_COL, 0.55) * 1.90 * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
-  c += FILL_COL * 0.38 * smoothstep(0.45, 0.97, dot(q, FILL_DIR));
-  c += RIM_COL  * 0.34 * smoothstep(0.66, 1.00, dot(q, RIM_DIR));
-  c += ACC_COL  * 0.22 * smoothstep(0.55, 0.98, dot(q, ACC_DIR));
+  c += mix(vec3(1.0), gKey, 0.55) * 1.90 * gStripGain * smoothstep(0.90, 0.998, dot(q, KEY_DIR));
+  c += gFill * 0.38 * gStripGain * smoothstep(0.45, 0.97, dot(q, FILL_DIR));
+  c += gRim  * 0.34 * gStripGain * smoothstep(0.66, 1.00, dot(q, RIM_DIR));
+  c += gAcc  * 0.22 * gStripGain * smoothstep(0.55, 0.98, dot(q, ACC_DIR));
 
   return c;
 }
@@ -364,6 +391,7 @@ void main() {
   vec2 uv = (frag * 2.0 - uResolution) / uResolution.y;
 
   gCursor = cursorWorld();
+  resolvePalette();
 
   // Camera. Static framing, with a little pointer parallax for depth.
   vec3 ro = vec3(uPointer * 0.10 * uPointerActive, 3.0);
@@ -395,7 +423,11 @@ void main() {
 
   // Background: paper plus the cast shadow, so the mass sits in the page
   // instead of floating on top of it.
-  vec3 col = uPaper * (1.0 - SHADOW_STRENGTH * groundShadow(suv));
+  // A cast shadow on an already dark page turns to mud, so ease it off; the
+  // vignette likewise has less room to work before it crushes.
+  float shadowStrength = mix(0.34, 0.20, uDark);
+  float vignette = mix(0.21, 0.13, uDark);
+  vec3 col = uPaper * (1.0 - shadowStrength * groundShadow(suv));
 
   // Bounding-sphere test. Background pixels cost one quadratic rather than a
   // full march — by far the biggest win available here, since raymarching is
@@ -494,7 +526,7 @@ void main() {
   // holds together and the empty margins read as deliberate.
   vec2 q = frag / uResolution;
   float edge = pow(clamp(16.0 * q.x * (1.0 - q.x) * q.y * (1.0 - q.y), 0.0, 1.0), 0.30);
-  col *= mix(1.0 - VIGNETTE, 1.0, edge);
+  col *= mix(1.0 - vignette, 1.0, edge);
 
   col = pow(max(col, 0.0), vec3(1.0 / 2.2));
   col += (ign(frag) - 0.5) / 255.0;

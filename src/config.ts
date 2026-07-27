@@ -21,10 +21,12 @@ export const site = {
 export const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xlgqajrg'
 
 /**
- * Paper-white palette. These are duplicated in main.css for the DOM; the values
- * here feed the shader, which works in linear space (see srgbToLinear).
+ * Page background per theme. Duplicated in main.css for the DOM; the values here
+ * feed the shader, which works in linear space (see srgbToLinear).
+ *
+ * Light is Apple's own light grey; dark is Tokyo Night's base.
  */
 export const palette = {
-  paper: '#f4f3ef',
-  ink: '#111111',
+  paperLight: '#f5f5f7',
+  paperDark: '#1a1b26',
 } as const

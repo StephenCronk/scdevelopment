@@ -13,6 +13,8 @@ export interface SceneState {
   eventTime: number
   /** 0 = hero framing, 1 = contact form open and the blob stepped aside. */
   focus: number
+  /** Eased 0..1, where 1 is fully dark. */
+  dark: number
 }
 
 export interface Renderer {
@@ -91,7 +93,7 @@ function compile(gl: WebGLRenderingContext, type: number, src: string, label: st
 export function createRenderer(
   canvas: HTMLCanvasElement,
   getState: () => SceneState,
-  opts: { paper: string; reducedMotion: boolean; forceGL1?: boolean },
+  opts: { paperLight: string; paperDark: string; reducedMotion: boolean; forceGL1?: boolean },
 ): Renderer | null {
   const attrs: WebGLContextAttributes = {
     alpha: false,
@@ -176,6 +178,7 @@ export function createRenderer(
     event: gl.getUniformLocation(program, 'uEvent'),
     focus: gl.getUniformLocation(program, 'uFocus'),
     paper: gl.getUniformLocation(program, 'uPaper'),
+    dark: gl.getUniformLocation(program, 'uDark'),
     balls: gl.getUniformLocation(program, 'uBalls'),
     partA: gl.getUniformLocation(program, 'uPartA'),
     partB: gl.getUniformLocation(program, 'uPartB'),
@@ -186,8 +189,8 @@ export function createRenderer(
     shapeSpin: gl.getUniformLocation(program, 'uShapeSpin'),
     wobble: gl.getUniformLocation(program, 'uWobble'),
   }
-  const paperLinear = srgbToLinear(opts.paper)
-  gl.uniform3f(u.paper, paperLinear[0], paperLinear[1], paperLinear[2])
+  const paperL = srgbToLinear(opts.paperLight)
+  const paperD = srgbToLinear(opts.paperDark)
 
   // --- sizing -------------------------------------------------------------
 
@@ -292,6 +295,17 @@ export function createRenderer(
     gl!.uniform1f(u.press, s.press)
     gl!.uniform1f(u.event, s.eventTime)
     gl!.uniform1f(u.focus, s.focus)
+
+    // The page background and the studio palette have to move together, so the
+    // same eased value drives both.
+    gl!.uniform1f(u.dark, s.dark)
+    gl!.uniform3f(
+      u.paper,
+      paperL[0] + (paperD[0] - paperL[0]) * s.dark,
+      paperL[1] + (paperD[1] - paperL[1]) * s.dark,
+      paperL[2] + (paperD[2] - paperL[2]) * s.dark,
+    )
+
     gl!.drawArrays(gl!.TRIANGLES, 0, 3)
   }
 

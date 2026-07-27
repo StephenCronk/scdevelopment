@@ -4,6 +4,7 @@ import { createRenderer, type SceneState } from './gl/renderer'
 import { createPointer } from './pointer'
 import { initContact } from './ui/contact'
 import { initCopyEmail } from './ui/copyEmail'
+import { initTheme } from './ui/theme'
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement
 const poster = document.getElementById('poster') as HTMLImageElement
@@ -45,7 +46,8 @@ function showPoster() {
 
   // Deferred until now: assigning src is what triggers the download.
   if (!poster.getAttribute('src')) {
-    poster.src = poster.dataset.src ?? ''
+    const dark = document.documentElement.dataset.theme !== 'light'
+    poster.src = (dark ? poster.dataset.srcDark : poster.dataset.srcLight) ?? ''
   } else if (poster.complete && poster.naturalWidth > 0) {
     poster.classList.add('is-shown')
   }
@@ -55,6 +57,8 @@ function showPoster() {
 
 function boot() {
   hydrate()
+
+  const theme = initTheme(announce)
 
   // ?static forces the poster path, ?reduced forces the single-frame path. Both
   // exist so the fallbacks can be checked without changing OS settings.
@@ -100,11 +104,13 @@ function boot() {
       press: pointer.press,
       eventTime: eventAt < 0 ? 999 : (now - eventAt) / 1000,
       focus,
+      dark: theme.amount(dt),
     }
   }
 
   const renderer = createRenderer(canvas, getState, {
-    paper: palette.paper,
+    paperLight: palette.paperLight,
+    paperDark: palette.paperDark,
     reducedMotion,
     forceGL1: params.has('gl1'),
   })

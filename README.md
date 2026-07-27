@@ -3,7 +3,7 @@
 A one-screen landing page: an address, a contact form, and a raymarched liquid-chrome
 centrepiece. No portfolio grid, no case studies — the centrepiece is the work sample.
 
-**~14 KB gzipped total. Zero runtime dependencies.**
+**~20 KB gzipped total. Zero runtime dependencies.**
 
 ```bash
 npm install
@@ -19,22 +19,23 @@ from the system stack, so there are no font requests and no layout shift.
 
 | | gzipped |
 |---|---|
-| JS | 10.6 KB |
-| CSS | 1.9 KB |
-| HTML | 1.4 KB |
+| JS | 15.8 KB |
+| CSS | 2.2 KB |
+| HTML | 1.7 KB |
 
 ## Layout
 
 ```
 src/
-  config.ts               name, address, links, Formspree endpoint, palette
+  config.ts               name, address, links, Formspree endpoint, palettes
   main.ts                 boot, fallbacks, state provider
   pointer.ts              spring-smoothed pointer
   gl/renderer.ts          context, program, resize, adaptive resolution, rAF
   gl/shaders/blob.frag.glsl   the whole effect
   ui/contact.ts           disclosure, validation, submit
   ui/copyEmail.ts         click-to-copy
-public/poster.jpg         still fallback for browsers without WebGL
+  ui/theme.ts             light/dark, persistence, eased crossfade
+public/poster-{dark,light}.jpg   still fallbacks, one per theme
 ```
 
 ## Editing the look
@@ -55,7 +56,7 @@ Text content and links are in `src/config.ts`.
 
 | URL | Effect |
 |---|---|
-| `?static` | Force the `poster.jpg` path (no-WebGL fallback) |
+| `?static` | Force the poster path (no-WebGL fallback) |
 | `?reduced` | Force the single-frame path (`prefers-reduced-motion`) |
 | `?gl1` | Force the WebGL1 downlevel path on WebGL2 hardware |
 
@@ -65,15 +66,30 @@ stripped from production builds.
 
 ### Rebaking the poster
 
-`public/poster.jpg` is a real frame (`POSTER_TIME` in `renderer.ts`), captured by hand.
+`public/poster-dark.jpg` and `public/poster-light.jpg` are real frames (`POSTER_TIME`
+in `renderer.ts`), captured by hand — one per theme, since a dark poster on a light page
+(or the reverse) reads as broken.
 To regenerate it after changing the shader, run the dev server and in the console:
 
 ```js
 const data = window.__capturePoster({ w: 1920, h: 1080, type: 'image/jpeg', quality: 0.88 })
 ```
 
-then save the data URL's payload to `public/poster.jpg`. Keep it lossy — the shader
+then save the data URL's payload to the matching file, and repeat with the theme
+toggled. Keep it lossy — the shader
 dithers its output, which makes PNG nearly incompressible (1.3 MB versus 35 KB).
+
+## Theming
+
+Dark by default (Tokyo Night), light is Apple's own grey. An explicit choice is stored in
+`localStorage`; there is no `prefers-color-scheme` fallback by design, so the page's
+identity is the same for everyone on a first visit. An inline script in `<head>` applies
+the stored choice before first paint, otherwise someone who chose light gets a flash of
+dark on every load.
+
+The DOM flips instantly via `data-theme`, but the shader crossfades: a single eased
+`uDark` uniform drives both the studio palette and the page background, so the
+centrepiece relights over ~0.5s rather than snapping. Both palettes clear WCAG AA.
 
 ## Performance
 
@@ -87,7 +103,7 @@ Measured ~6.5–8.3 ms/frame at a 1920×1080 buffer on an M-series Mac.
 
 ## Fallbacks
 
-WebGL2 → WebGL1 (the shader is mechanically downlevelled) → `poster.jpg`. If the poster
+WebGL2 → WebGL1 (the shader is mechanically downlevelled) → a poster. If the poster
 itself fails, the paper background stands on its own; the page never renders an empty
 box. `prefers-reduced-motion` renders exactly one composed frame and stops.
 
@@ -123,7 +139,7 @@ dashboard — that is independent of `site.email`, which is only what the page d
 **Pages cannot build this repo for itself.** Pointed at the repo root it serves the
 source tree, where `index.html` references `/src/main.ts` — which Pages returns as
 `content-type: video/mp2t`, so the browser refuses to execute it as a module. The
-symptom is an unstyled page with no canvas, plus a 404 on `poster.jpg` (it lives under
+symptom is an unstyled page with no canvas, plus a 404 on the poster (it lives under
 `public/` in source). A build has to be published.
 
 ### Current setup: `gh-pages` branch
