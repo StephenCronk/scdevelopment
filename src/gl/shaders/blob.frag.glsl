@@ -94,6 +94,7 @@ const vec3 KEY_DIR  = vec3( 0.35,  0.86,  0.37);
 const vec3 FILL_DIR = vec3(-0.72,  0.30,  0.62);
 const vec3 RIM_DIR  = vec3( 0.15, -0.25, -0.96);
 const vec3 ACC_DIR  = vec3( 0.62, -0.30,  0.72);
+const vec3 WARM_DIR = vec3( 0.68, -0.42, -0.60); // low right, behind
 
 const vec3 KEY_L  = vec3(0.92, 0.95, 1.00); // neutral, faintly cool
 const vec3 FILL_L = vec3(0.48, 0.70, 1.00); // blue
@@ -108,6 +109,12 @@ const vec3 KEY_D  = vec3(0.45, 0.03, 1.00); // neon purple, not a white key
 const vec3 FILL_D = vec3(0.05, 0.28, 1.00); // electric blue, from the left
 const vec3 RIM_D  = vec3(0.42, 0.12, 1.00); // violet, from behind (rim only)
 const vec3 ACC_D  = vec3(0.55, 0.06, 1.00); // purple, from the right
+const vec3 WARM_D = vec3(1.00, 0.22, 0.02); // neon amber / tungsten
+
+// Amber is a light, not a wider iridescence palette. The film palette is kept
+// off the warm side of the wheel deliberately (see IRID_*) — putting amber
+// back there would smear it across every grazing angle, where a gel keeps it
+// on one side, opposite the blue, which is what the reference actually does.
 
 // Bloom. The references all have it and a single-pass raymarcher has no
 // post-process to blur with — but the march already tracks each ray's closest
@@ -129,6 +136,7 @@ const vec3 ACC_D  = vec3(0.55, 0.06, 1.00); // purple, from the right
 #define GLOW_HALO_I   0.040
 const vec3 GLOW_A = vec3(0.05, 0.24, 1.00); // electric blue, left
 const vec3 GLOW_B = vec3(0.55, 0.06, 1.00); // purple, right
+const vec3 GLOW_C = vec3(1.00, 0.26, 0.03); // amber, low right
 
 // Neon filaments. These live in the *environment*, not on the surface. Painted
 // onto the surface in object space they sit still relative to the geometry and
@@ -368,6 +376,8 @@ vec3 env(vec3 r) {
   c += gFill * 0.38 * gStripGain * smoothstep(0.45, 0.97, dot(q, FILL_DIR));
   c += gRim  * 0.34 * gStripGain * smoothstep(0.66, 1.00, dot(q, RIM_DIR));
   c += gAcc  * mix(0.22, 0.40, uDark) * gStripGain * smoothstep(0.55, 0.98, dot(q, ACC_DIR));
+  // Dark mode only: on paper this reads as a stain rather than a light.
+  c += WARM_D * 0.95 * uDark * gStripGain * smoothstep(0.58, 0.99, dot(q, WARM_DIR));
 
   // Domain-warped first: straight product-of-sines zero-crossings form a regular
   // lattice, which reads as a cage. Displacing by a second sine field breaks it
@@ -596,6 +606,8 @@ void main() {
   float halo = 1.0 - smoothstep(0.0, GLOW_HALO_R, ca);
   halo = halo * halo * halo;
   vec3 glowCol = mix(GLOW_A, GLOW_B, smoothstep(-1.0, 1.0, suv.x + 0.30 * suv.y));
+  // Warm corner, matching where the amber gel actually sits.
+  glowCol = mix(glowCol, GLOW_C, 0.75 * smoothstep(0.00, 1.05, suv.x - 0.7 * suv.y));
   col += glowCol * (core * GLOW_CORE_I + halo * GLOW_HALO_I) * uDark;
 
   col = mix(col, metal, cov);

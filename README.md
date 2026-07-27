@@ -123,9 +123,16 @@ Dark mode adds two things light mode does not have, both faded in by `uDark`:
 - **Smoother surface.** Surface noise is cut to 30% in dark mode; speckle breaks the
   reflection into fragments, and black-neon depends on long clean sweeps of light.
 
-The two saturated gels come from opposite sides — electric blue from the left, purple
-from the right — and the bloom's hue splits the same way across the frame, so the two
-colours read as separate sources rather than one wash.
+The gels come from four distinct angles — electric blue from the left, purple from the
+right, violet behind for rim separation, and neon amber low and behind — and the bloom's
+hue splits the same way across the frame, so they read as separate sources rather than
+one wash. The room rotates slowly, so which side each colour lands on sweeps over time.
+
+The amber is deliberately a *light* rather than a widening of the iridescence palette.
+That palette is kept off the warm side of the wheel on purpose (see `IRID_*` — it
+oscillates along a cyan-to-magenta axis precisely so it can never pass through amber);
+reintroducing warmth there would smear it across every grazing angle, where a gel keeps
+it on one side, opposite the blue.
 
 Bloom is composited onto the background *before* the metal, so it spills around the
 silhouette without ever lifting the object's own blacks — which are what make the neon
